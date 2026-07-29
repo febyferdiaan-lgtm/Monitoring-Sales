@@ -2,6 +2,8 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
+  ArrowUpRight,
   Bell,
   CalendarDays,
   CheckCircle2,
@@ -80,11 +82,11 @@ const fallbackSales: Sale[] = [
 ];
 
 const navItems = [
-  { label: "Dashboard", icon: LayoutDashboard },
-  { label: "Pipeline", icon: TrendingUp },
-  { label: "Tagihan", icon: FileText },
-  { label: "Customer", icon: Users },
-  { label: "Laporan", icon: FileBarChart },
+  { id: "Dashboard", label: "Ringkasan", caption: "Kondisi hari ini", icon: LayoutDashboard },
+  { id: "Pipeline", label: "Proses Penjualan", caption: "RFQ sampai lunas", icon: TrendingUp },
+  { id: "Tagihan", label: "Tagihan", caption: "Invoice & jatuh tempo", icon: FileText },
+  { id: "Customer", label: "Customer", caption: "PO & invoice", icon: Users },
+  { id: "Laporan", label: "Laporan", caption: "Rekap data", icon: FileBarChart },
 ];
 
 const money = new Intl.NumberFormat("id-ID", {
@@ -239,12 +241,12 @@ export default function Home() {
   const winRate = filtered.length ? Math.round((completed / filtered.length) * 100) : 0;
 
   const stages = [
-    { name: "RFQ", icon: Send, color: "#3478E5", soft: "#E7F0FF" },
-    { name: "Quotation", icon: FileSpreadsheet, color: "#3478E5", soft: "#E7F0FF" },
-    { name: "PO", icon: ShoppingBag, color: "#7944D8", soft: "#EFE7FC" },
-    { name: "Surat Jalan", icon: Truck, color: "#F59B23", soft: "#FFF0D9" },
-    { name: "Invoice", icon: FileText, color: "#3EA45A", soft: "#E3F3E7" },
-    { name: "Payment", icon: CheckCircle2, color: "#3EA45A", soft: "#E3F3E7" },
+    { name: "RFQ", label: "RFQ Masuk", hint: "Permintaan diterima", icon: Send, color: "#3478E5", soft: "#E7F0FF" },
+    { name: "Quotation", label: "Penawaran", hint: "Harga dikirim", icon: FileSpreadsheet, color: "#3478E5", soft: "#E7F0FF" },
+    { name: "PO", label: "PO Diterima", hint: "Pesanan disetujui", icon: ShoppingBag, color: "#7944D8", soft: "#EFE7FC" },
+    { name: "Surat Jalan", label: "Pengiriman", hint: "Barang dikirim", icon: Truck, color: "#F59B23", soft: "#FFF0D9" },
+    { name: "Invoice", label: "Ditagihkan", hint: "Menunggu bayar", icon: FileText, color: "#E56B2F", soft: "#FFF0E8" },
+    { name: "Payment", label: "Lunas", hint: "Pembayaran masuk", icon: CheckCircle2, color: "#3EA45A", soft: "#E3F3E7" },
   ].map((stage) => {
     const records = filtered.filter((sale) => stageOf(sale) === stage.name);
     return { ...stage, count: records.length, value: records.reduce((sum, sale) => sum + Number(sale.invoice_amount || 0), 0) };
@@ -407,24 +409,39 @@ export default function Home() {
 
   const renderDashboard = () => (
     <>
+      <section className="welcome-strip">
+        <div className="welcome-copy">
+          <span className="welcome-icon"><TrendingUp size={22} /></span>
+          <div>
+            <p className="eyebrow">RINGKASAN PENJUALAN</p>
+            <h2>Pantau pekerjaan yang perlu diselesaikan</h2>
+            <p>Semua proses dari permintaan customer sampai pembayaran dalam satu tampilan.</p>
+          </div>
+        </div>
+        <button className="welcome-action" onClick={() => setActiveNav(overdue.length ? "Tagihan" : "Pipeline")}>
+          <span><b>{overdue.length}</b> tagihan terlambat</span>
+          <ArrowUpRight size={20} />
+        </button>
+      </section>
+
       <section className="kpi-grid" aria-label="Ringkasan kinerja penjualan">
         {[
-          { label: "Total Pipeline", value: compactMoney(pipelineValue), helper: `${filtered.length} transaksi aktif`, icon: TrendingUp, color: "#F3222B", soft: "#FDE8E9" },
-          { label: "Outstanding", value: compactMoney(outstanding), helper: `${filtered.filter((s) => stageOf(s) === "Invoice").length} invoice belum lunas`, icon: WalletCards, color: "#F59B23", soft: "#FFF0D9" },
-          { label: "Jatuh Tempo", value: String(overdue.length), helper: "perlu ditindaklanjuti", icon: CalendarDays, color: "#F3222B", soft: "#FDE8E9" },
-          { label: "Win Rate", value: `${winRate}%`, helper: `${completed} transaksi selesai`, icon: TrendingUp, color: "#3EA45A", soft: "#E3F3E7" },
+          { label: "Nilai Transaksi", value: compactMoney(pipelineValue), helper: `${filtered.length} pekerjaan terpantau`, icon: TrendingUp, color: "#F3222B", soft: "#FDE8E9", target: "Pipeline" },
+          { label: "Belum Dibayar", value: compactMoney(outstanding), helper: `${filtered.filter((s) => stageOf(s) === "Invoice").length} invoice menunggu bayar`, icon: WalletCards, color: "#E98218", soft: "#FFF0D9", target: "Tagihan" },
+          { label: "Lewat Jatuh Tempo", value: String(overdue.length), helper: "perlu segera ditindaklanjuti", icon: AlertTriangle, color: "#D91D26", soft: "#FDE8E9", target: "Tagihan" },
+          { label: "Customer Aktif", value: String(customers.length), helper: `${customerTotals.poCount} PO & ${customerTotals.invoiceCount} invoice`, icon: Users, color: "#3478E5", soft: "#E7F0FF", target: "Customer" },
         ].map((kpi) => (
-          <button className="kpi-card" key={kpi.label} onClick={() => kpi.label === "Jatuh Tempo" ? setActiveNav("Tagihan") : setActiveNav("Pipeline")}>
-            <div className="kpi-top"><span className="icon-well" style={{ color: kpi.color, background: kpi.soft }}><kpi.icon size={22} /></span><span>{kpi.label}</span><span className="more-dot">•••</span></div>
-            <div className="kpi-value-row"><strong>{loading ? "—" : kpi.value}</strong><Sparkline color={kpi.color} /></div>
-            <p style={{ color: kpi.color }}>↗ <b>{kpi.helper}</b></p>
+          <button className="kpi-card" key={kpi.label} onClick={() => setActiveNav(kpi.target)}>
+            <div className="kpi-top"><span className="icon-well" style={{ color: kpi.color, background: kpi.soft }}><kpi.icon size={21} /></span><span>{kpi.label}</span><ChevronRight className="kpi-arrow" size={17} /></div>
+            <div className="kpi-value-row"><strong>{loading ? "—" : kpi.value}</strong></div>
+            <p><span style={{ background: kpi.soft, color: kpi.color }}>Lihat detail</span><b>{kpi.helper}</b></p>
           </button>
         ))}
       </section>
 
       <section className="panel pipeline-panel">
         <div className="section-head">
-          <div><p className="eyebrow">ALUR PENJUALAN</p><h2>Pipeline Sales</h2></div>
+          <div><p className="eyebrow">POSISI SETIAP PEKERJAAN</p><h2>Alur Penjualan</h2></div>
           <button className="text-button" onClick={() => setActiveNav("Pipeline")}>Lihat Detail <ChevronRight size={16} /></button>
         </div>
         <div className="pipeline-flow">
@@ -435,7 +452,7 @@ export default function Home() {
                 onClick={() => setStageFilter(stageFilter === stage.name ? "" : stage.name)}
               >
                 <span className="stage-icon" style={{ color: stage.color, background: stage.soft }}><stage.icon size={20} /></span>
-                <span><b>{stage.name}</b><strong>{stage.count}</strong><small style={{ color: stage.color }}>{compactMoney(stage.value)}</small></span>
+                <span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.hint}</small><em style={{ color: stage.color }}>{compactMoney(stage.value)}</em></span>
               </button>
               {index < stages.length - 1 && <span className="connector" aria-hidden="true" />}
             </div>
@@ -445,17 +462,17 @@ export default function Home() {
 
       <section className="bottom-grid">
         <article className="panel analysis-panel">
-          <div className="section-head"><div><p className="eyebrow">ANALISIS</p><h2>Pipeline per Tahap</h2></div><span className="period-chip">{year}</span></div>
+          <div className="section-head"><div><p className="eyebrow">KOMPOSISI PEKERJAAN</p><h2>Jumlah per Tahap</h2></div><span className="period-chip">{year}</span></div>
           <div className="donut-content">
             <Donut stages={stages} />
             <div className="legend">
-              {stages.map((stage) => <button key={stage.name} onClick={() => setStageFilter(stage.name)}><i style={{ background: stage.color }} /> <span>{stage.name}</span><b>{stage.count}</b></button>)}
+              {stages.map((stage) => <button key={stage.name} onClick={() => setStageFilter(stage.name)}><i style={{ background: stage.color }} /> <span>{stage.label}</span><b>{stage.count}</b></button>)}
             </div>
           </div>
         </article>
 
         <article className="panel aging-panel">
-          <div className="section-head"><div><p className="eyebrow">FOLLOW UP PRIORITAS</p><h2>Invoice Aging</h2></div><button className="icon-button" aria-label="Muat ulang data" onClick={loadSales}><RefreshCw size={17} /></button></div>
+          <div className="section-head"><div><p className="eyebrow">PERLU DITINDAKLANJUTI</p><h2>Umur Tagihan</h2></div><button className="icon-button" aria-label="Muat ulang data" onClick={loadSales}><RefreshCw size={17} /></button></div>
           <InvoiceTable rows={filtered.filter((sale) => sale.invoice_no).sort((a, b) => agingDays(b) - agingDays(a)).slice(0, 7)} onSelect={setSelected} />
           <button className="see-all" onClick={() => setActiveNav("Tagihan")}>Lihat Semua <ChevronRight size={16} /></button>
         </article>
@@ -467,15 +484,15 @@ export default function Home() {
     if (activeNav === "Dashboard") return renderDashboard();
     if (activeNav === "Pipeline") return (
       <section className="module-stack">
-        <div className="module-banner"><span className="banner-icon"><TrendingUp /></span><div><p className="eyebrow">PIPELINE PENJUALAN</p><h2>Kontrol proses RFQ sampai pembayaran</h2><p>Klik tahap untuk menyaring seluruh transaksi pada posisi tersebut.</p></div></div>
+        <div className="module-banner"><span className="banner-icon"><TrendingUp /></span><div><p className="eyebrow">PROSES PENJUALAN</p><h2>Lihat posisi setiap pekerjaan</h2><p>Pilih salah satu tahap untuk melihat pekerjaan yang sedang berada pada proses tersebut.</p></div></div>
         <div className="panel pipeline-panel">
-          <div className="section-head"><div><p className="eyebrow">ALUR PENJUALAN</p><h2>Pipeline Sales</h2></div></div>
+          <div className="section-head"><div><p className="eyebrow">RFQ SAMPAI LUNAS</p><h2>Alur Penjualan</h2></div></div>
           <div className="pipeline-flow">
             {stages.map((stage, index) => (
               <div className="stage-fragment" key={stage.name}>
                 <button className={`stage-card ${stageFilter === stage.name ? "selected" : ""}`} onClick={() => setStageFilter(stageFilter === stage.name ? "" : stage.name)}>
                   <span className="stage-icon" style={{ color: stage.color, background: stage.soft }}><stage.icon size={20} /></span>
-                  <span><b>{stage.name}</b><strong>{stage.count}</strong><small style={{ color: stage.color }}>{compactMoney(stage.value)}</small></span>
+                  <span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.hint}</small><em style={{ color: stage.color }}>{compactMoney(stage.value)}</em></span>
                 </button>
                 {index < stages.length - 1 && <span className="connector" aria-hidden="true" />}
               </div>
@@ -487,8 +504,8 @@ export default function Home() {
     );
     if (activeNav === "Tagihan") return (
       <section className="module-stack">
-        <div className="module-banner red"><span className="banner-icon"><Clock3 /></span><div><p className="eyebrow">KONTROL PIUTANG</p><h2>{compactMoney(outstanding)} belum diterima</h2><p>{overdue.length} invoice melewati tanggal jatuh tempo.</p></div></div>
-        <article className="panel full-table"><div className="section-head"><div><p className="eyebrow">DAFTAR TAGIHAN</p><h2>Invoice & Aging</h2></div></div><InvoiceTable rows={filtered.filter((sale) => sale.invoice_no).sort((a, b) => agingDays(b) - agingDays(a))} onSelect={setSelected} /></article>
+        <div className="module-banner red"><span className="banner-icon"><Clock3 /></span><div><p className="eyebrow">KONTROL TAGIHAN</p><h2>{compactMoney(outstanding)} belum diterima</h2><p>{overdue.length} invoice melewati tanggal jatuh tempo dan perlu ditindaklanjuti.</p></div></div>
+        <article className="panel full-table"><div className="section-head"><div><p className="eyebrow">DAFTAR TAGIHAN</p><h2>Invoice dan Umur Tagihan</h2></div></div><InvoiceTable rows={filtered.filter((sale) => sale.invoice_no).sort((a, b) => agingDays(b) - agingDays(a))} onSelect={setSelected} /></article>
       </section>
     );
     if (activeNav === "Customer") return (
@@ -545,8 +562,9 @@ export default function Home() {
     <main className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <div className="brand"><span className="brand-mark">MDA</span><div><strong>PT MDA</strong><small>Amanah Sejahtera</small></div><button className="mobile-close" aria-label="Tutup menu" onClick={() => setSidebarOpen(false)}><X /></button></div>
+        <p className="nav-heading">MENU UTAMA</p>
         <nav aria-label="Navigasi utama">
-          {navItems.map((item) => <button key={item.label} className={activeNav === item.label ? "active" : ""} onClick={() => { setActiveNav(item.label); setSidebarOpen(false); }}><item.icon size={20} /><span>{item.label}</span>{activeNav === item.label && <ChevronRight size={16} />}</button>)}
+          {navItems.map((item) => <button key={item.id} className={activeNav === item.id ? "active" : ""} onClick={() => { setActiveNav(item.id); setSidebarOpen(false); }}><item.icon size={20} /><span><b>{item.label}</b><small>{item.caption}</small></span>{activeNav === item.id && <ChevronRight size={16} />}</button>)}
         </nav>
         <div className="last-update"><div><span><RefreshCw size={15} /> Update Terakhir</span><b>Sinkron otomatis</b></div><button aria-label="Sinkronkan data" onClick={loadSales}><RefreshCw size={18} /></button></div>
       </aside>
@@ -554,7 +572,7 @@ export default function Home() {
 
       <section className="workspace">
         <header className="topbar">
-          <div className="title-wrap"><button className="menu-button" aria-label="Buka menu" onClick={() => setSidebarOpen(true)}><Menu /></button><div><p className="eyebrow">PT MDA AMANAH SEJAHTERA</p><h1>{activeNav === "Dashboard" ? "Monitoring Sales" : activeNav}</h1></div></div>
+          <div className="title-wrap"><button className="menu-button" aria-label="Buka menu" onClick={() => setSidebarOpen(true)}><Menu /></button><div><p className="eyebrow">PT MDA AMANAH SEJAHTERA</p><h1>{{ Dashboard: "Ringkasan Penjualan", Pipeline: "Proses Penjualan", Tagihan: "Kontrol Tagihan", Customer: "Data Customer", Laporan: "Laporan Penjualan" }[activeNav]}</h1><p className="page-description">{{ Dashboard: "Lihat kondisi bisnis dan prioritas hari ini.", Pipeline: "Pantau perjalanan setiap pekerjaan dari RFQ hingga lunas.", Tagihan: "Fokus pada invoice yang belum dibayar dan jatuh tempo.", Customer: "Bandingkan jumlah PO, invoice, pembayaran, dan outstanding.", Laporan: "Unduh dan periksa rekap penjualan sesuai filter." }[activeNav]}</p></div></div>
           <div className="top-actions">
             <label className="select-control"><CalendarDays size={17} /><select value={year} onChange={(event) => setYear(event.target.value)}>{years.map((item) => <option key={item}>{item}</option>)}</select></label>
             <label className="search-control"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari customer, RFQ, invoice…" /></label>
