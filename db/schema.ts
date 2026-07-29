@@ -22,3 +22,50 @@ export const sales = sqliteTable("sales", {
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const spareParts = sqliteTable("spare_parts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  partNumber: text("part_number").notNull().unique(),
+  name: text("name").notNull(),
+  category: text("category").notNull().default(""),
+  brand: text("brand").notNull().default(""),
+  unit: text("unit").notNull().default("Pcs"),
+  sellingPrice: real("selling_price").notNull().default(0),
+  notes: text("notes").notNull().default(""),
+  isActive: integer("is_active").notNull().default(1),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const salesDocuments = sqliteTable("sales_documents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  documentType: text("document_type").notNull(),
+  documentNumber: text("document_number").notNull().unique(),
+  customer: text("customer").notNull(),
+  customerAddress: text("customer_address").notNull().default(""),
+  customerPic: text("customer_pic").notNull().default(""),
+  project: text("project").notNull().default(""),
+  referenceNo: text("reference_no").notNull().default(""),
+  documentDate: text("document_date").notNull(),
+  dueDate: text("due_date").notNull().default(""),
+  subtotal: real("subtotal").notNull().default(0),
+  taxPercent: real("tax_percent").notNull().default(11),
+  taxAmount: real("tax_amount").notNull().default(0),
+  grandTotal: real("grand_total").notNull().default(0),
+  notes: text("notes").notNull().default(""),
+  status: text("status").notNull().default("DRAFT"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const salesDocumentItems = sqliteTable("sales_document_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  documentId: integer("document_id").notNull(),
+  sparePartId: integer("spare_part_id"),
+  partNumber: text("part_number").notNull().default(""),
+  description: text("description").notNull(),
+  quantity: real("quantity").notNull().default(1),
+  unit: text("unit").notNull().default("Pcs"),
+  unitPrice: real("unit_price").notNull().default(0),
+  lineTotal: real("line_total").notNull().default(0),
+});

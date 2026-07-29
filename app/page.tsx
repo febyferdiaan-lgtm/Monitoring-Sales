@@ -14,11 +14,16 @@ import {
   FileText,
   LayoutDashboard,
   Menu,
+  PackageSearch,
+  Pencil,
   Plus,
+  Printer,
+  ReceiptText,
   RefreshCw,
   Search,
   Send,
   ShoppingBag,
+  Trash2,
   TrendingUp,
   Truck,
   Upload,
@@ -51,6 +56,63 @@ type Sale = {
 
 type DraftSale = Omit<Sale, "id" | "created_at" | "source_key">;
 
+type SparePart = {
+  id: number;
+  part_number: string;
+  name: string;
+  category: string;
+  brand: string;
+  unit: string;
+  selling_price: number;
+  notes: string;
+};
+
+type DraftPart = Omit<SparePart, "id">;
+
+type DocumentLine = {
+  key: string;
+  spare_part_id: number | null;
+  part_number: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+};
+
+type SalesDocument = {
+  id: number;
+  document_type: "QUOTATION" | "INVOICE";
+  document_number: string;
+  customer: string;
+  customer_address: string;
+  customer_pic: string;
+  project: string;
+  reference_no: string;
+  document_date: string;
+  due_date: string;
+  subtotal: number;
+  tax_percent: number;
+  tax_amount: number;
+  grand_total: number;
+  notes: string;
+  status: string;
+  items: (DocumentLine & { id: number; line_total: number })[];
+};
+
+type DocumentDraft = {
+  type: "QUOTATION" | "INVOICE";
+  customer: string;
+  customer_address: string;
+  customer_pic: string;
+  project: string;
+  reference_no: string;
+  document_date: string;
+  due_date: string;
+  tax_percent: number;
+  notes: string;
+  items: DocumentLine[];
+};
+
 const emptyDraft: DraftSale = {
   customer: "",
   location: "",
@@ -70,6 +132,40 @@ const emptyDraft: DraftSale = {
   notes: "",
 };
 
+const emptyPart: DraftPart = {
+  part_number: "",
+  name: "",
+  category: "",
+  brand: "",
+  unit: "Pcs",
+  selling_price: 0,
+  notes: "",
+};
+
+const newLine = (): DocumentLine => ({
+  key: crypto.randomUUID(),
+  spare_part_id: null,
+  part_number: "",
+  description: "",
+  quantity: 1,
+  unit: "Pcs",
+  unit_price: 0,
+});
+
+const emptyDocument = (type: "QUOTATION" | "INVOICE"): DocumentDraft => ({
+  type,
+  customer: "",
+  customer_address: "",
+  customer_pic: "",
+  project: "",
+  reference_no: "",
+  document_date: new Date().toISOString().slice(0, 10),
+  due_date: "",
+  tax_percent: 11,
+  notes: type === "QUOTATION" ? "Harga berlaku selama 14 hari sejak tanggal penawaran." : "Mohon cantumkan nomor invoice pada berita transfer.",
+  items: [newLine()],
+});
+
 const fallbackSales: Sale[] = [
   { id: 1, source_key: "demo-1", customer: "Pertamina Port and Logistic", location: "Jakarta", transaction_type: "Pengadaan", project: "Jaket Brand Wood", rfq_no: "027/MDA-HO/RFQ/V/2025", quotation_no: "062/MDA/XII-2025", po_no: "1286/PPB/XII/25", delivery_no: "037/SJ-MDA/XII/2025", invoice_no: "017/MDA-INV/XII/2025", invoice_amount: 1084947300, amount_paid: 1084947300, due_date: "2025-12-05", payment_date: "2025-12-05", payment_status: "CLOSED", transaction_status: "Done Invoice", notes: "Pembayaran diterima.", created_at: "2025-12-05T00:00:00Z" },
   { id: 2, source_key: "demo-2", customer: "Kementrian PanRB", location: "Jakarta", transaction_type: "Pengadaan", project: "Seragam Brand Executive", rfq_no: "028/MDA-HO/RFQ/V/2025", quotation_no: "068/MDA/XII-2025", po_no: "EP-01KC0MZ6M6DV5W9V5TXVPBM33A", delivery_no: "034/SJ-MDA/XII/2025", invoice_no: "022/MDA-INV/XII/2025", invoice_amount: 929628330, amount_paid: 929628330, due_date: "2026-01-30", payment_date: "2026-01-30", payment_status: "CLOSED", transaction_status: "Done Invoice", notes: "Transaksi selesai.", created_at: "2026-01-30T00:00:00Z" },
@@ -86,6 +182,8 @@ const navItems = [
   { id: "Pipeline", label: "Proses Penjualan", caption: "RFQ sampai lunas", icon: TrendingUp },
   { id: "Tagihan", label: "Tagihan", caption: "Invoice & jatuh tempo", icon: FileText },
   { id: "Customer", label: "Customer", caption: "PO & invoice", icon: Users },
+  { id: "Sparepart", label: "Master Sparepart", caption: "Part number & harga", icon: PackageSearch },
+  { id: "Dokumen", label: "Quotation & Invoice", caption: "Buat dokumen jual", icon: ReceiptText },
   { id: "Laporan", label: "Laporan", caption: "Rekap data", icon: FileBarChart },
 ];
 
@@ -183,8 +281,16 @@ export default function Home() {
   const [stageFilter, setStageFilter] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [showPart, setShowPart] = useState(false);
+  const [showDocument, setShowDocument] = useState(false);
   const [selected, setSelected] = useState<Sale | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<SalesDocument | null>(null);
   const [draft, setDraft] = useState<DraftSale>(emptyDraft);
+  const [parts, setParts] = useState<SparePart[]>([]);
+  const [documents, setDocuments] = useState<SalesDocument[]>([]);
+  const [partDraft, setPartDraft] = useState<DraftPart>(emptyPart);
+  const [editingPartId, setEditingPartId] = useState<number | null>(null);
+  const [documentDraft, setDocumentDraft] = useState<DocumentDraft>(() => emptyDocument("QUOTATION"));
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -207,8 +313,24 @@ export default function Home() {
     }
   };
 
+  const loadBusinessData = async () => {
+    try {
+      const [partsResponse, documentsResponse] = await Promise.all([
+        fetch("/api/spareparts"),
+        fetch("/api/documents"),
+      ]);
+      if (partsResponse.ok) setParts((await partsResponse.json()).data ?? []);
+      if (documentsResponse.ok) setDocuments((await documentsResponse.json()).data ?? []);
+    } catch {
+      setNotice("Master sparepart dan dokumen belum berhasil dimuat.");
+    }
+  };
+
   useEffect(() => {
-    const timer = window.setTimeout(loadSales, 0);
+    const timer = window.setTimeout(() => {
+      loadSales();
+      loadBusinessData();
+    }, 0);
     return () => window.clearTimeout(timer);
   }, []);
   useEffect(() => {
@@ -392,6 +514,144 @@ export default function Home() {
     }
   };
 
+  const openPartForm = (part?: SparePart) => {
+    if (part) {
+      setEditingPartId(part.id);
+      setPartDraft({
+        part_number: part.part_number,
+        name: part.name,
+        category: part.category,
+        brand: part.brand,
+        unit: part.unit,
+        selling_price: Number(part.selling_price),
+        notes: part.notes,
+      });
+    } else {
+      setEditingPartId(null);
+      setPartDraft(emptyPart);
+    }
+    setShowPart(true);
+  };
+
+  const savePart = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const response = await fetch("/api/spareparts", {
+        method: editingPartId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editingPartId ? { ...partDraft, id: editingPartId } : partDraft),
+      });
+      if (!response.ok) throw new Error();
+      setShowPart(false);
+      setNotice(editingPartId ? "Data sparepart berhasil diperbarui." : "Sparepart berhasil didaftarkan.");
+      await loadBusinessData();
+    } catch {
+      setNotice("Sparepart belum berhasil disimpan. Pastikan part number tidak duplikat.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const archivePart = async (part: SparePart) => {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/spareparts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...part, is_active: false }),
+      });
+      if (!response.ok) throw new Error();
+      setNotice(`${part.part_number} telah dinonaktifkan.`);
+      await loadBusinessData();
+    } catch {
+      setNotice("Sparepart belum berhasil dinonaktifkan.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openDocumentForm = (type: "QUOTATION" | "INVOICE", source?: SalesDocument) => {
+    if (source) {
+      setDocumentDraft({
+        ...emptyDocument(type),
+        type,
+        customer: source.customer,
+        customer_address: source.customer_address,
+        customer_pic: source.customer_pic,
+        project: source.project,
+        reference_no: type === "INVOICE" ? source.document_number : source.reference_no,
+        tax_percent: Number(source.tax_percent),
+        notes: type === "INVOICE" ? "Mohon cantumkan nomor invoice pada berita transfer." : source.notes,
+        items: source.items.map((item) => ({
+          key: crypto.randomUUID(),
+          spare_part_id: item.spare_part_id,
+          part_number: item.part_number,
+          description: item.description,
+          quantity: Number(item.quantity),
+          unit: item.unit,
+          unit_price: Number(item.unit_price),
+        })),
+      });
+    } else {
+      setDocumentDraft(emptyDocument(type));
+    }
+    setShowDocument(true);
+  };
+
+  const updateDocumentLine = (key: string, patch: Partial<DocumentLine>) => {
+    setDocumentDraft((current) => ({
+      ...current,
+      items: current.items.map((item) => item.key === key ? { ...item, ...patch } : item),
+    }));
+  };
+
+  const selectPartForLine = (key: string, id: string) => {
+    const part = parts.find((item) => item.id === Number(id));
+    if (!part) {
+      updateDocumentLine(key, { spare_part_id: null, part_number: "", description: "", unit: "Pcs", unit_price: 0 });
+      return;
+    }
+    updateDocumentLine(key, {
+      spare_part_id: part.id,
+      part_number: part.part_number,
+      description: part.name,
+      unit: part.unit,
+      unit_price: Number(part.selling_price),
+    });
+  };
+
+  const documentSubtotal = documentDraft.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
+  const documentTax = documentSubtotal * Number(documentDraft.tax_percent || 0) / 100;
+  const documentTotal = documentSubtotal + documentTax;
+
+  const saveDocument = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const response = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(documentDraft),
+      });
+      if (!response.ok) throw new Error();
+      const payload = await response.json();
+      setShowDocument(false);
+      setNotice(`${documentDraft.type === "INVOICE" ? "Invoice" : "Quotation"} ${payload.document_number} berhasil dibuat.`);
+      await Promise.all([loadBusinessData(), loadSales()]);
+      setActiveNav("Dokumen");
+    } catch {
+      setNotice("Dokumen belum berhasil dibuat. Lengkapi customer dan minimal satu item.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const printDocument = (document: SalesDocument) => {
+    setSelectedDocument(document);
+    window.setTimeout(() => window.print(), 120);
+  };
+
   const exportCsv = () => {
     const header = ["Customer", "Project", "RFQ", "Quotation", "PO", "Surat Jalan", "Invoice", "Nilai", "Terbayar", "Jatuh Tempo", "Status"];
     const lines = filtered.map((sale) => [
@@ -545,6 +805,76 @@ export default function Home() {
         </section>
       </section>
     );
+    if (activeNav === "Sparepart") {
+      const visibleParts = parts.filter((part) =>
+        `${part.part_number} ${part.name} ${part.category} ${part.brand}`.toLowerCase().includes(search.toLowerCase())
+      );
+      return (
+        <section className="module-stack">
+          <div className="module-banner parts-banner">
+            <span className="banner-icon"><PackageSearch /></span>
+            <div><p className="eyebrow">MASTER SPAREPART</p><h2>{parts.length} sparepart terdaftar</h2><p>Pilih part number saat membuat penawaran agar harga jual dan satuan terisi otomatis.</p></div>
+            <button className="primary-button" onClick={() => openPartForm()}><Plus size={17} /> Tambah Sparepart</button>
+          </div>
+          <article className="panel full-table">
+            <div className="section-head"><div><p className="eyebrow">KATALOG HARGA JUAL</p><h2>Part Number & Harga</h2></div><span className="period-chip">{visibleParts.length} item</span></div>
+            <div className="table-scroll">
+              <table className="data-table parts-table">
+                <thead><tr><th>Part Number</th><th>Nama Sparepart</th><th>Kategori / Brand</th><th>Satuan</th><th className="number">Harga Jual</th><th>Aksi</th></tr></thead>
+                <tbody>
+                  {visibleParts.map((part) => (
+                    <tr key={part.id}>
+                      <td><span className="part-number">{part.part_number}</span></td>
+                      <td><b>{part.name}</b><small>{part.notes || "Tidak ada catatan"}</small></td>
+                      <td><b>{part.category || "Umum"}</b><small>{part.brand || "Tanpa brand"}</small></td>
+                      <td>{part.unit}</td>
+                      <td className="number"><strong>{money.format(part.selling_price)}</strong></td>
+                      <td><div className="row-actions"><button aria-label={`Edit ${part.part_number}`} onClick={() => openPartForm(part)}><Pencil size={15} /></button><button className="danger" aria-label={`Nonaktifkan ${part.part_number}`} onClick={() => archivePart(part)}><Trash2 size={15} /></button></div></td>
+                    </tr>
+                  ))}
+                  {!visibleParts.length && <tr><td colSpan={6} className="empty-state">Belum ada sparepart. Klik “Tambah Sparepart” untuk mendaftarkan part number dan harga jual pertama.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+      );
+    }
+    if (activeNav === "Dokumen") return (
+      <section className="module-stack">
+        <div className="document-actions">
+          <article className="document-action-card quotation">
+            <span><FileSpreadsheet /></span><div><p className="eyebrow">PENAWARAN HARGA</p><h2>Buat Quotation</h2><p>Pilih sparepart, harga jual terisi otomatis, lalu simpan dan cetak.</p></div>
+            <button className="primary-button" onClick={() => openDocumentForm("QUOTATION")}><Plus size={17} /> Buat Quotation</button>
+          </article>
+          <article className="document-action-card invoice">
+            <span><ReceiptText /></span><div><p className="eyebrow">PENAGIHAN CUSTOMER</p><h2>Buat Invoice</h2><p>Buat invoice baru atau konversikan langsung dari quotation.</p></div>
+            <button className="primary-button" onClick={() => openDocumentForm("INVOICE")}><Plus size={17} /> Buat Invoice</button>
+          </article>
+        </div>
+        <article className="panel full-table">
+          <div className="section-head"><div><p className="eyebrow">RIWAYAT DOKUMEN</p><h2>{documents.length} dokumen tersimpan</h2></div></div>
+          <div className="table-scroll">
+            <table className="data-table documents-table">
+              <thead><tr><th>Jenis</th><th>Nomor Dokumen</th><th>Customer / Proyek</th><th>Tanggal</th><th className="number">Total</th><th>Aksi</th></tr></thead>
+              <tbody>
+                {documents.map((document) => (
+                  <tr key={document.id}>
+                    <td><span className={`document-kind ${document.document_type.toLowerCase()}`}>{document.document_type === "INVOICE" ? "Invoice" : "Quotation"}</span></td>
+                    <td><b>{document.document_number}</b><small>{document.reference_no ? `Ref: ${document.reference_no}` : document.status}</small></td>
+                    <td><b>{document.customer}</b><small>{document.project || `${document.items.length} item`}</small></td>
+                    <td>{document.document_date}</td>
+                    <td className="number"><strong>{money.format(document.grand_total)}</strong></td>
+                    <td><div className="row-actions"><button aria-label="Lihat dokumen" onClick={() => setSelectedDocument(document)}><FileText size={15} /></button><button aria-label="Cetak dokumen" onClick={() => printDocument(document)}><Printer size={15} /></button>{document.document_type === "QUOTATION" && <button className="convert-button" onClick={() => openDocumentForm("INVOICE", document)}>Jadi Invoice</button>}</div></td>
+                  </tr>
+                ))}
+                {!documents.length && <tr><td colSpan={6} className="empty-state">Belum ada quotation atau invoice yang dibuat dari aplikasi.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+    );
     return (
       <section className="module-stack">
         <div className="module-banner green"><span className="banner-icon"><FileBarChart /></span><div><p className="eyebrow">LAPORAN PENJUALAN</p><h2>Ringkasan siap diunduh</h2><p>Data mengikuti pencarian, periode, dan tahap pipeline yang aktif.</p></div><button className="primary-button" onClick={exportCsv}><Upload size={17} /> Unduh CSV</button></div>
@@ -572,10 +902,10 @@ export default function Home() {
 
       <section className="workspace">
         <header className="topbar">
-          <div className="title-wrap"><button className="menu-button" aria-label="Buka menu" onClick={() => setSidebarOpen(true)}><Menu /></button><div><p className="eyebrow">PT MDA AMANAH SEJAHTERA</p><h1>{{ Dashboard: "Ringkasan Penjualan", Pipeline: "Proses Penjualan", Tagihan: "Kontrol Tagihan", Customer: "Data Customer", Laporan: "Laporan Penjualan" }[activeNav]}</h1><p className="page-description">{{ Dashboard: "Lihat kondisi bisnis dan prioritas hari ini.", Pipeline: "Pantau perjalanan setiap pekerjaan dari RFQ hingga lunas.", Tagihan: "Fokus pada invoice yang belum dibayar dan jatuh tempo.", Customer: "Bandingkan jumlah PO, invoice, pembayaran, dan outstanding.", Laporan: "Unduh dan periksa rekap penjualan sesuai filter." }[activeNav]}</p></div></div>
+          <div className="title-wrap"><button className="menu-button" aria-label="Buka menu" onClick={() => setSidebarOpen(true)}><Menu /></button><div><p className="eyebrow">PT MDA AMANAH SEJAHTERA</p><h1>{{ Dashboard: "Ringkasan Penjualan", Pipeline: "Proses Penjualan", Tagihan: "Kontrol Tagihan", Customer: "Data Customer", Sparepart: "Master Sparepart", Dokumen: "Quotation & Invoice", Laporan: "Laporan Penjualan" }[activeNav]}</h1><p className="page-description">{{ Dashboard: "Lihat kondisi bisnis dan prioritas hari ini.", Pipeline: "Pantau perjalanan setiap pekerjaan dari RFQ hingga lunas.", Tagihan: "Fokus pada invoice yang belum dibayar dan jatuh tempo.", Customer: "Bandingkan jumlah PO, invoice, pembayaran, dan outstanding.", Sparepart: "Kelola part number, satuan, brand, dan harga jual.", Dokumen: "Buat penawaran dan invoice itemized yang siap dicetak.", Laporan: "Unduh dan periksa rekap penjualan sesuai filter." }[activeNav]}</p></div></div>
           <div className="top-actions">
             <label className="select-control"><CalendarDays size={17} /><select value={year} onChange={(event) => setYear(event.target.value)}>{years.map((item) => <option key={item}>{item}</option>)}</select></label>
-            <label className="search-control"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari customer, RFQ, invoice…" /></label>
+            <label className="search-control"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={activeNav === "Sparepart" ? "Cari part number atau nama…" : "Cari customer, RFQ, invoice…"} /></label>
             <button className="notification-button" aria-label="Notifikasi tagihan" onClick={() => setActiveNav("Tagihan")}><Bell size={20} />{overdue.length > 0 && <span>{Math.min(overdue.length, 99)}</span>}</button>
             <input ref={fileRef} className="visually-hidden" type="file" accept=".xlsx,.xls" onChange={importExcel} />
             <button className="secondary-button desktop-import" onClick={() => fileRef.current?.click()} disabled={saving}><FileSpreadsheet size={17} /> Impor Excel</button>
@@ -613,6 +943,81 @@ export default function Home() {
         </div>
       )}
 
+      {showPart && (
+        <div className="modal-backdrop" onMouseDown={() => setShowPart(false)}>
+          <section className="modal part-modal" role="dialog" aria-modal="true" aria-labelledby="part-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head"><div><p className="eyebrow">MASTER SPAREPART</p><h2 id="part-title">{editingPartId ? "Edit Sparepart" : "Daftarkan Sparepart"}</h2><p>Part number menjadi referensi utama saat membuat quotation dan invoice.</p></div><button className="icon-button" onClick={() => setShowPart(false)} aria-label="Tutup"><X /></button></div>
+            <form onSubmit={savePart} className="sales-form">
+              <label>Part Number<input required value={partDraft.part_number} onChange={(e) => setPartDraft({ ...partDraft, part_number: e.target.value.toUpperCase() })} placeholder="Contoh: 600-185-5100" /></label>
+              <label>Nama Sparepart<input required value={partDraft.name} onChange={(e) => setPartDraft({ ...partDraft, name: e.target.value })} placeholder="Nama/deskripsi barang" /></label>
+              <label>Kategori<input value={partDraft.category} onChange={(e) => setPartDraft({ ...partDraft, category: e.target.value })} placeholder="Engine, hydraulic, electrical…" /></label>
+              <label>Brand<input value={partDraft.brand} onChange={(e) => setPartDraft({ ...partDraft, brand: e.target.value })} placeholder="Komatsu, Hino, Weidmuller…" /></label>
+              <label>Satuan<select value={partDraft.unit} onChange={(e) => setPartDraft({ ...partDraft, unit: e.target.value })}><option>Pcs</option><option>Unit</option><option>Set</option><option>Pack</option><option>Lot</option><option>Meter</option><option>Roll</option></select></label>
+              <label>Harga Jual<input required type="number" min="0" value={partDraft.selling_price} onChange={(e) => setPartDraft({ ...partDraft, selling_price: Number(e.target.value) })} /></label>
+              <label className="wide">Catatan<textarea value={partDraft.notes} onChange={(e) => setPartDraft({ ...partDraft, notes: e.target.value })} placeholder="Spesifikasi, lead time, atau informasi tambahan" /></label>
+              <div className="form-actions wide"><button type="button" className="secondary-button" onClick={() => setShowPart(false)}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Menyimpan…" : editingPartId ? "Simpan Perubahan" : "Daftarkan Sparepart"}</button></div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {showDocument && (
+        <div className="modal-backdrop document-backdrop" onMouseDown={() => setShowDocument(false)}>
+          <section className="modal document-modal" role="dialog" aria-modal="true" aria-labelledby="document-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head"><div><p className="eyebrow">{documentDraft.type === "INVOICE" ? "INVOICE BARU" : "QUOTATION BARU"}</p><h2 id="document-title">Buat {documentDraft.type === "INVOICE" ? "Invoice" : "Quotation"}</h2><p>Pilih sparepart agar part number, satuan, dan harga jual terisi otomatis.</p></div><button className="icon-button" onClick={() => setShowDocument(false)} aria-label="Tutup"><X /></button></div>
+            <form onSubmit={saveDocument} className="document-form">
+              <section className="document-meta">
+                <label>Jenis Dokumen<select value={documentDraft.type} onChange={(e) => setDocumentDraft({ ...documentDraft, type: e.target.value as "QUOTATION" | "INVOICE" })}><option value="QUOTATION">Quotation</option><option value="INVOICE">Invoice</option></select></label>
+                <label>Customer<input required list="customer-list" value={documentDraft.customer} onChange={(e) => setDocumentDraft({ ...documentDraft, customer: e.target.value })} placeholder="Nama perusahaan/customer" /><datalist id="customer-list">{customers.map((customer) => <option key={customer.name} value={customer.name} />)}</datalist></label>
+                <label>PIC Customer<input value={documentDraft.customer_pic} onChange={(e) => setDocumentDraft({ ...documentDraft, customer_pic: e.target.value })} placeholder="Nama PIC" /></label>
+                <label>Tanggal Dokumen<input required type="date" value={documentDraft.document_date} onChange={(e) => setDocumentDraft({ ...documentDraft, document_date: e.target.value })} /></label>
+                <label className="wide">Alamat Customer<input value={documentDraft.customer_address} onChange={(e) => setDocumentDraft({ ...documentDraft, customer_address: e.target.value })} placeholder="Alamat lengkap untuk dokumen" /></label>
+                <label>Proyek / Kebutuhan<input value={documentDraft.project} onChange={(e) => setDocumentDraft({ ...documentDraft, project: e.target.value })} /></label>
+                <label>{documentDraft.type === "INVOICE" ? "Referensi Quotation / PO" : "Referensi RFQ"}<input value={documentDraft.reference_no} onChange={(e) => setDocumentDraft({ ...documentDraft, reference_no: e.target.value })} /></label>
+                {documentDraft.type === "INVOICE" && <label>Jatuh Tempo<input type="date" value={documentDraft.due_date} onChange={(e) => setDocumentDraft({ ...documentDraft, due_date: e.target.value })} /></label>}
+                <label>PPN (%)<input type="number" min="0" step="0.1" value={documentDraft.tax_percent} onChange={(e) => setDocumentDraft({ ...documentDraft, tax_percent: Number(e.target.value) })} /></label>
+              </section>
+
+              <section className="line-items">
+                <div className="line-items-head"><div><p className="eyebrow">ITEM DOKUMEN</p><h3>Sparepart & Harga Jual</h3></div><button type="button" className="secondary-button" onClick={() => setDocumentDraft({ ...documentDraft, items: [...documentDraft.items, newLine()] })}><Plus size={15} /> Tambah Baris</button></div>
+                {documentDraft.items.map((item, index) => (
+                  <div className="line-item" key={item.key}>
+                    <span className="line-number">{index + 1}</span>
+                    <label className="part-select">Pilih Sparepart<select value={item.spare_part_id ?? ""} onChange={(e) => selectPartForLine(item.key, e.target.value)}><option value="">Item manual</option>{parts.map((part) => <option key={part.id} value={part.id}>{part.part_number} — {part.name}</option>)}</select></label>
+                    <label>Part Number<input value={item.part_number} onChange={(e) => updateDocumentLine(item.key, { part_number: e.target.value.toUpperCase() })} /></label>
+                    <label className="description">Deskripsi<input required value={item.description} onChange={(e) => updateDocumentLine(item.key, { description: e.target.value })} /></label>
+                    <label>QTY<input required type="number" min="0.01" step="0.01" value={item.quantity} onChange={(e) => updateDocumentLine(item.key, { quantity: Number(e.target.value) })} /></label>
+                    <label>Satuan<input value={item.unit} onChange={(e) => updateDocumentLine(item.key, { unit: e.target.value })} /></label>
+                    <label>Harga Jual<input required type="number" min="0" value={item.unit_price} onChange={(e) => updateDocumentLine(item.key, { unit_price: Number(e.target.value) })} /></label>
+                    <div className="line-total"><span>Jumlah</span><strong>{money.format(item.quantity * item.unit_price)}</strong></div>
+                    <button type="button" className="remove-line" aria-label={`Hapus item ${index + 1}`} disabled={documentDraft.items.length === 1} onClick={() => setDocumentDraft({ ...documentDraft, items: documentDraft.items.filter((line) => line.key !== item.key) })}><Trash2 size={16} /></button>
+                  </div>
+                ))}
+              </section>
+
+              <div className="document-footer-form">
+                <label>Catatan<textarea value={documentDraft.notes} onChange={(e) => setDocumentDraft({ ...documentDraft, notes: e.target.value })} /></label>
+                <div className="document-totals">
+                  <div><span>Subtotal</span><strong>{money.format(documentSubtotal)}</strong></div>
+                  <div><span>PPN {documentDraft.tax_percent}%</span><strong>{money.format(documentTax)}</strong></div>
+                  <div className="grand-total"><span>Total</span><strong>{money.format(documentTotal)}</strong></div>
+                </div>
+              </div>
+              <div className="form-actions"><button type="button" className="secondary-button" onClick={() => setShowDocument(false)}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Membuat Dokumen…" : `Simpan ${documentDraft.type === "INVOICE" ? "Invoice" : "Quotation"}`}</button></div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {selectedDocument && (
+        <div className="modal-backdrop document-preview-backdrop" onMouseDown={() => setSelectedDocument(null)}>
+          <section className="modal document-preview-modal" role="dialog" aria-modal="true" aria-labelledby="preview-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="preview-toolbar"><button className="secondary-button" onClick={() => setSelectedDocument(null)}><X size={16} /> Tutup</button><button className="primary-button" onClick={() => window.print()}><Printer size={16} /> Cetak / Simpan PDF</button></div>
+            <DocumentPreview document={selectedDocument} />
+          </section>
+        </div>
+      )}
+
       {selected && (
         <div className="modal-backdrop" onMouseDown={() => setSelected(null)}>
           <section className="modal detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -635,6 +1040,35 @@ export default function Home() {
         </div>
       )}
     </main>
+  );
+}
+
+function DocumentPreview({ document }: { document: SalesDocument }) {
+  return (
+    <article className="print-document">
+      <header className="print-header">
+        <div className="print-brand"><span>MDA</span><div><strong>PT MDA AMANAH SEJAHTERA</strong><small>General Supply & Industrial Solutions</small></div></div>
+        <div className="print-title"><p>{document.document_type === "INVOICE" ? "INVOICE" : "QUOTATION"}</p><strong>{document.document_number}</strong></div>
+      </header>
+      <section className="print-info">
+        <div><span>DITUJUKAN KEPADA</span><strong>{document.customer}</strong><p>{document.customer_pic ? `Up. ${document.customer_pic}` : ""}</p><p>{document.customer_address || "Alamat customer belum diisi"}</p></div>
+        <dl>
+          <div><dt>Tanggal</dt><dd>{document.document_date}</dd></div>
+          {document.reference_no && <div><dt>Referensi</dt><dd>{document.reference_no}</dd></div>}
+          {document.project && <div><dt>Proyek</dt><dd>{document.project}</dd></div>}
+          {document.due_date && <div><dt>Jatuh Tempo</dt><dd>{document.due_date}</dd></div>}
+        </dl>
+      </section>
+      <table className="print-table">
+        <thead><tr><th>No</th><th>Part Number / Deskripsi</th><th>QTY</th><th>Satuan</th><th>Harga</th><th>Jumlah</th></tr></thead>
+        <tbody>{document.items.map((item, index) => <tr key={item.id}><td>{index + 1}</td><td><b>{item.part_number || "—"}</b><span>{item.description}</span></td><td>{item.quantity}</td><td>{item.unit}</td><td>{money.format(item.unit_price)}</td><td>{money.format(item.line_total)}</td></tr>)}</tbody>
+      </table>
+      <section className="print-summary">
+        <div className="print-notes"><span>CATATAN</span><p>{document.notes || "—"}</p></div>
+        <div className="print-totals"><div><span>Subtotal</span><strong>{money.format(document.subtotal)}</strong></div><div><span>PPN {document.tax_percent}%</span><strong>{money.format(document.tax_amount)}</strong></div><div><span>TOTAL</span><strong>{money.format(document.grand_total)}</strong></div></div>
+      </section>
+      <footer className="print-footer"><p>Terima kasih atas kepercayaan Anda kepada PT MDA Amanah Sejahtera.</p><div><span>Hormat kami,</span><strong>PT MDA AMANAH SEJAHTERA</strong></div></footer>
+    </article>
   );
 }
 
