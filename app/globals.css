@@ -73,7 +73,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .content { animation: enter .22s ease-out; }
 .content.loading { opacity: .58; }
 @keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-.panel, .kpi-card, .customer-card { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+.panel, .kpi-card, .customer-card, .customer-summary { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
 .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
 .kpi-card { min-width: 0; min-height: 154px; padding: 17px; text-align: left; cursor: pointer; transition: .17s ease; }
 .kpi-card:hover, .customer-card:hover { transform: translateY(-1px); border-color: #d3c9c2; }
@@ -142,12 +142,32 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .module-banner > .primary-button { margin-left: auto; }
 .full-table { padding: 18px; }
 .sales-table { min-width: 900px; }
+.customer-summary { min-height: 132px; padding: 21px; display: grid; grid-template-columns: minmax(240px, 1.2fr) minmax(520px, 2fr); align-items: center; gap: 24px; background: linear-gradient(135deg, #fff 0%, #fff7f7 100%); }
+.customer-summary-copy h2 { margin: 0; font-size: 23px; }
+.customer-summary-copy > p:last-child { margin: 7px 0 0; color: var(--secondary); font-size: 11px; }
+.customer-summary-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #f0dfdf; border-radius: 14px; background: rgba(255,255,255,.84); overflow: hidden; }
+.customer-summary-metrics > div { min-width: 0; padding: 15px 14px; display: flex; flex-direction: column; gap: 6px; }
+.customer-summary-metrics > div + div { border-left: 1px solid #f0dfdf; }
+.customer-summary-metrics span { color: var(--muted); font-size: 9px; font-weight: 700; }
+.customer-summary-metrics strong { overflow: hidden; color: var(--charcoal); font-size: 18px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
 .customer-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.customer-card { min-height: 120px; padding: 18px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 13px; transition: .17s ease; }
+.customer-card { min-height: 238px; padding: 17px; display: flex; flex-direction: column; gap: 15px; transition: .17s ease; }
+.customer-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.customer-identity > div { min-width: 0; }
 .customer-avatar { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 13px; background: var(--red-soft); color: var(--red); font-size: 12px; font-weight: 800; }
-.customer-card h3 { margin: 0; font-size: 13px; }.customer-card p { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
-.customer-numbers { grid-column: 1 / -1; display: flex; align-items: end; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 12px; }
-.customer-numbers strong { font-size: 18px; }.customer-numbers small { color: var(--muted); font-size: 9px; }
+.customer-card h3 { margin: 0; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }.customer-card p { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+.customer-document-counts { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.customer-document-counts > div { padding: 11px 12px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 3px 8px; border-radius: 11px; background: var(--subtle); }
+.customer-document-counts span { color: var(--secondary); font-size: 10px; font-weight: 700; }
+.customer-document-counts strong { grid-row: 1 / 3; grid-column: 2; color: var(--charcoal); font-size: 25px; line-height: 1; }
+.customer-document-counts small { color: var(--muted); font-size: 8px; }
+.customer-finance { margin-top: auto; padding-top: 12px; display: grid; gap: 8px; border-top: 1px solid var(--border); }
+.customer-finance > div { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.customer-finance span { color: var(--muted); font-size: 9px; }
+.customer-finance strong { overflow: hidden; font-size: 11px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.customer-finance .paid-value { color: var(--green); }
+.customer-finance .outstanding-value { color: var(--red); }
+.customer-empty { grid-column: 1 / -1; padding: 42px; color: var(--muted); text-align: center; font-size: 12px; }
 .report-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .report-card { padding: 20px; display: flex; flex-direction: column; gap: 7px; }
 .report-card p { margin: 0; color: var(--secondary); font-size: 11px; }.report-card strong { font-size: 26px; }.report-card span { color: var(--muted); font-size: 10px; }
@@ -185,6 +205,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .search-control { width: 180px; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .bottom-grid { grid-template-columns: 1fr; }
+  .customer-summary { grid-template-columns: 1fr; }
   .customer-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 
@@ -199,6 +220,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .topbar { align-items: flex-start; }
   .select-control, .search-control, .notification-button { display: none; }
   .mobile-import { display: block; margin-bottom: 14px; }
+  .customer-summary-metrics { grid-template-columns: repeat(2, 1fr); }
+  .customer-summary-metrics > div:nth-child(3) { border-left: 0; border-top: 1px solid #f0dfdf; }
+  .customer-summary-metrics > div:nth-child(4) { border-top: 1px solid #f0dfdf; }
   .customer-grid { grid-template-columns: 1fr 1fr; }
 }
 
@@ -218,6 +242,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .donut-content { grid-template-columns: 1fr 1fr; }
   .donut-wrap { width: 145px; }
   .customer-grid, .report-grid { grid-template-columns: 1fr; }
+  .customer-summary { padding: 17px; gap: 16px; }
+  .customer-summary-metrics { grid-template-columns: 1fr 1fr; }
+  .customer-summary-metrics > div { padding: 12px; }
+  .customer-summary-metrics strong { font-size: 15px; }
   .module-banner { align-items: flex-start; flex-wrap: wrap; }
   .module-banner > .primary-button { margin: 0; }
   .sales-form, .detail-grid { grid-template-columns: 1fr; }

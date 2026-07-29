@@ -251,16 +251,53 @@ export default function Home() {
   });
 
   const customers = useMemo(() => {
-    const grouped = new Map<string, { count: number; value: number; outstanding: number }>();
+    const grouped = new Map<string, {
+      transactions: number;
+      poNumbers: Set<string>;
+      invoiceNumbers: Set<string>;
+      invoiceValue: number;
+      paid: number;
+      outstanding: number;
+    }>();
     filtered.forEach((sale) => {
-      const current = grouped.get(sale.customer) ?? { count: 0, value: 0, outstanding: 0 };
-      current.count += 1;
-      current.value += Number(sale.invoice_amount || 0);
-      current.outstanding += Math.max(0, Number(sale.invoice_amount) - Number(sale.amount_paid));
-      grouped.set(sale.customer, current);
+      const customerName = sale.customer.trim() || "Tanpa Nama";
+      const current = grouped.get(customerName) ?? {
+        transactions: 0,
+        poNumbers: new Set<string>(),
+        invoiceNumbers: new Set<string>(),
+        invoiceValue: 0,
+        paid: 0,
+        outstanding: 0,
+      };
+      current.transactions += 1;
+      if (sale.po_no.trim()) current.poNumbers.add(sale.po_no.trim());
+      if (sale.invoice_no.trim()) {
+        current.invoiceNumbers.add(sale.invoice_no.trim());
+        current.invoiceValue += Number(sale.invoice_amount || 0);
+        current.paid += Number(sale.amount_paid || 0);
+        current.outstanding += Math.max(0, Number(sale.invoice_amount) - Number(sale.amount_paid));
+      }
+      grouped.set(customerName, current);
     });
-    return Array.from(grouped.entries()).sort((a, b) => b[1].value - a[1].value);
+    return Array.from(grouped.entries())
+      .map(([name, info]) => ({
+        name,
+        transactions: info.transactions,
+        poCount: info.poNumbers.size,
+        invoiceCount: info.invoiceNumbers.size,
+        invoiceValue: info.invoiceValue,
+        paid: info.paid,
+        outstanding: info.outstanding,
+      }))
+      .sort((a, b) => b.invoiceValue - a.invoiceValue || b.poCount - a.poCount);
   }, [filtered]);
+
+  const customerTotals = useMemo(() => customers.reduce((total, customer) => ({
+    poCount: total.poCount + customer.poCount,
+    invoiceCount: total.invoiceCount + customer.invoiceCount,
+    invoiceValue: total.invoiceValue + customer.invoiceValue,
+    outstanding: total.outstanding + customer.outstanding,
+  }), { poCount: 0, invoiceCount: 0, invoiceValue: 0, outstanding: 0 }), [customers]);
 
   const openAdd = () => {
     setDraft(emptyDraft);
@@ -455,10 +492,40 @@ export default function Home() {
       </section>
     );
     if (activeNav === "Customer") return (
-      <section className="customer-grid">
-        {customers.map(([name, info]) => (
-          <article className="customer-card" key={name}><span className="customer-avatar">{name.slice(0, 2).toUpperCase()}</span><div><h3>{name}</h3><p>{info.count} transaksi</p></div><div className="customer-numbers"><strong>{compactMoney(info.value)}</strong><small>Outstanding {compactMoney(info.outstanding)}</small></div></article>
-        ))}
+      <section className="module-stack">
+        <div className="customer-summary">
+          <div className="customer-summary-copy">
+            <p className="eyebrow">REKAP CUSTOMER</p>
+            <h2>{customers.length} customer terpantau</h2>
+            <p>Total PO dan invoice dihitung berdasarkan nomor dokumen unik.</p>
+          </div>
+          <div className="customer-summary-metrics">
+            <div><span>Total PO</span><strong>{customerTotals.poCount}</strong></div>
+            <div><span>Total Invoice</span><strong>{customerTotals.invoiceCount}</strong></div>
+            <div><span>Nilai Invoice</span><strong>{compactMoney(customerTotals.invoiceValue)}</strong></div>
+            <div><span>Outstanding</span><strong>{compactMoney(customerTotals.outstanding)}</strong></div>
+          </div>
+        </div>
+        <section className="customer-grid">
+          {customers.map((customer) => (
+            <article className="customer-card" key={customer.name}>
+              <div className="customer-identity">
+                <span className="customer-avatar">{customer.name.slice(0, 2).toUpperCase()}</span>
+                <div><h3>{customer.name}</h3><p>{customer.transactions} transaksi tercatat</p></div>
+              </div>
+              <div className="customer-document-counts">
+                <div><span>PO</span><strong>{customer.poCount}</strong><small>dokumen</small></div>
+                <div><span>Invoice</span><strong>{customer.invoiceCount}</strong><small>dokumen</small></div>
+              </div>
+              <div className="customer-finance">
+                <div><span>Nilai Invoice</span><strong>{money.format(customer.invoiceValue)}</strong></div>
+                <div><span>Terbayar</span><strong className="paid-value">{money.format(customer.paid)}</strong></div>
+                <div><span>Outstanding</span><strong className={customer.outstanding > 0 ? "outstanding-value" : ""}>{money.format(customer.outstanding)}</strong></div>
+              </div>
+            </article>
+          ))}
+          {!customers.length && <div className="panel customer-empty">Belum ada customer pada filter ini.</div>}
+        </section>
       </section>
     );
     return (
