@@ -59,6 +59,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .top-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .select-control, .search-control { height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--secondary); }
 .select-control select { width: 126px; border: 0; outline: 0; background: transparent; color: var(--charcoal); font-size: 12px; cursor: pointer; }
+.year-control { min-width: 188px; }
+.year-control > span { color: var(--muted); font-size: 10px; font-weight: 750; }
+.year-control select { width: 104px; font-weight: 750; }
 .search-control { width: min(260px, 18vw); }
 .search-control input { width: 100%; border: 0; outline: 0; background: transparent; font-size: 12px; }
 .notification-button, .icon-button { position: relative; width: 42px; height: 42px; display: grid; place-items: center; flex: none; border: 1px solid var(--border); border-radius: 10px; background: #fff; cursor: pointer; }

@@ -272,6 +272,35 @@ const agingStatus = (sale: Sale) => {
   return "Lancar";
 };
 
+const documentYear = (value: string) => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const fullYears = text.match(/\b(20\d{2})\b/g);
+  if (fullYears?.length) return fullYears.at(-1) ?? "";
+  const shortYear = text.match(/(?:^|[\/-])(\d{2})(?:$|[\/-])/);
+  if (!shortYear) return "";
+  const year = Number(shortYear[1]);
+  return year >= 0 && year <= 99 ? String(2000 + year) : "";
+};
+
+const transactionYear = (sale: Sale) => {
+  const documentSources = [
+    sale.invoice_no,
+    sale.po_no,
+    sale.delivery_no,
+    sale.quotation_no,
+    sale.rfq_no,
+  ];
+  for (const source of documentSources) {
+    const year = documentYear(source);
+    if (year) return year;
+  }
+  const dateSource = sale.due_date || sale.payment_date || sale.created_at;
+  if (!dateSource) return "";
+  const parsed = new Date(dateSource);
+  return Number.isNaN(parsed.valueOf()) ? "" : String(parsed.getFullYear());
+};
+
 function Sparkline({ color }: { color: string }) {
   return (
     <svg viewBox="0 0 104 40" className="sparkline" aria-hidden="true">
@@ -316,7 +345,7 @@ export default function DashboardClient() {
   const [loading, setLoading] = useState(true);
   const [activeNav, setActiveNav] = useState("Dashboard");
   const [search, setSearch] = useState("");
-  const [year, setYear] = useState("Semua Periode");
+  const [year, setYear] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -420,21 +449,20 @@ export default function DashboardClient() {
   }, [notice]);
 
   const years = useMemo(() => {
-    const list = Array.from(new Set(sales.flatMap((sale) => {
-      const source = sale.due_date || sale.created_at;
-      return source ? [String(new Date(source).getFullYear())] : [];
-    }))).sort().reverse();
+    const list = Array.from(new Set(sales.map(transactionYear).filter(Boolean))).sort().reverse();
     return ["Semua Periode", ...list];
   }, [sales]);
+
+  const latestYear = years.find((item) => item !== "Semua Periode") || String(new Date().getFullYear());
+  const selectedYear = year || latestYear;
 
   const filtered = useMemo(() => sales.filter((sale) => {
     const haystack = `${sale.customer} ${sale.project} ${sale.rfq_no} ${sale.quotation_no} ${sale.po_no} ${sale.invoice_no}`.toLowerCase();
     const matchesSearch = haystack.includes(search.toLowerCase());
-    const source = sale.due_date || sale.created_at;
-    const matchesYear = year === "Semua Periode" || (source && String(new Date(source).getFullYear()) === year);
+    const matchesYear = selectedYear === "Semua Periode" || transactionYear(sale) === selectedYear;
     const matchesStage = !stageFilter || stageOf(sale) === stageFilter;
     return matchesSearch && matchesYear && matchesStage;
-  }), [sales, search, year, stageFilter]);
+  }), [sales, search, selectedYear, stageFilter]);
 
   const summaryFiltered = useMemo(
     () => filtered.filter((sale) => sale.po_no.trim()),
@@ -885,7 +913,7 @@ export default function DashboardClient() {
             <h2>Customer yang Belum Melakukan Pembayaran Keseluruhan</h2>
             <p className="section-note">Quotation tanpa PO tidak masuk Summary. Klik customer untuk membuka daftar invoice dan detail part.</p>
           </div>
-          <span className="period-chip">{year}</span>
+          <span className="period-chip">{selectedYear}{selectedYear === latestYear ? " • Terbaru" : ""}</span>
         </div>
         <div className="table-scroll">
           <table className="data-table receivable-table">
@@ -949,9 +977,9 @@ export default function DashboardClient() {
         <div className="welcome-copy">
           <span className="welcome-icon"><TrendingUp size={22} /></span>
           <div>
-            <p className="eyebrow">SUMMARY PENJUALAN</p>
-            <h2>Pantau pekerjaan yang perlu diselesaikan</h2>
-            <p>Semua proses dari permintaan customer sampai pembayaran dalam satu tampilan.</p>
+            <p className="eyebrow">SUMMARY TRANSAKSI {selectedYear === "Semua Periode" ? "SELURUH TAHUN" : `TAHUN ${selectedYear}`}</p>
+            <h2>{selectedYear === latestYear ? `Transaksi terbaru tahun ${latestYear}` : selectedYear === "Semua Periode" ? "Ringkasan seluruh transaksi" : `Ringkasan transaksi tahun ${selectedYear}`}</h2>
+            <p>Hanya transaksi yang sudah memiliki PO, dari pesanan sampai pembayaran.</p>
           </div>
         </div>
         <button className="welcome-action" onClick={() => setActiveNav(summaryOverdue.length ? "Tagihan" : "Pipeline")}>
@@ -998,7 +1026,7 @@ export default function DashboardClient() {
 
       <section className="bottom-grid">
         <article className="panel analysis-panel">
-          <div className="section-head"><div><p className="eyebrow">KOMPOSISI PEKERJAAN</p><h2>Jumlah per Tahap</h2></div><span className="period-chip">{year}</span></div>
+          <div className="section-head"><div><p className="eyebrow">KOMPOSISI PEKERJAAN</p><h2>Jumlah per Tahap</h2></div><span className="period-chip">{selectedYear}{selectedYear === latestYear ? " • Terbaru" : ""}</span></div>
           <div className="donut-content">
             <Donut stages={summaryStages} />
             <div className="legend">
@@ -1259,7 +1287,15 @@ export default function DashboardClient() {
         <header className="topbar">
           <div className="title-wrap"><button className="menu-button" aria-label="Buka menu" onClick={() => setSidebarOpen(true)}><Menu /></button><div><p className="eyebrow">PT MDA AMANAH SEJAHTERA</p><h1>{{ Dashboard: "Summary", Pipeline: "Proses Penjualan", Tagihan: "Kontrol Tagihan", Customer: "Data Customer", Sparepart: "Master Sparepart", Dokumen: "Quotation & Invoice", Excel: "Data Excel Lengkap", Akses: "Akses Pengguna", Laporan: "Laporan Penjualan" }[activeNav]}</h1><p className="page-description">{{ Dashboard: "Lihat penjualan ber-PO, umur tagihan, dan piutang customer.", Pipeline: "Pantau perjalanan setiap pekerjaan dari RFQ hingga lunas.", Tagihan: "Fokus pada invoice yang belum dibayar dan jatuh tempo.", Customer: "Bandingkan jumlah PO, invoice, pembayaran, dan outstanding.", Sparepart: "Kelola part number, satuan, brand, dan harga jual.", Dokumen: "Buat penawaran dan invoice itemized yang siap dicetak.", Excel: "Telusuri seluruh baris dan kolom sumber Monitoring Sales.xlsx.", Akses: "Atur peran Admin, Sales/Editor, dan Viewer.", Laporan: "Unduh dan periksa rekap penjualan sesuai filter." }[activeNav]}</p></div></div>
           <div className="top-actions">
-            {activeNav !== "Akses" && activeNav !== "Excel" && <label className="select-control"><CalendarDays size={17} /><select value={year} onChange={(event) => setYear(event.target.value)}>{years.map((item) => <option key={item}>{item}</option>)}</select></label>}
+            {activeNav !== "Akses" && activeNav !== "Excel" && (
+              <label className="select-control year-control">
+                <CalendarDays size={17} />
+                <span>Tahun</span>
+                <select value={selectedYear} onChange={(event) => setYear(event.target.value)} aria-label="Filter transaksi berdasarkan tahun">
+                  {years.map((item) => <option key={item} value={item}>{item === latestYear ? `${item} (Terbaru)` : item}</option>)}
+                </select>
+              </label>
+            )}
             {activeNav !== "Akses" && <label className="search-control"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={activeNav === "Sparepart" ? "Cari part number atau nama…" : activeNav === "Excel" ? "Cari semua data Excel…" : "Cari customer, RFQ, invoice…"} /></label>}
             {activeNav !== "Akses" && <button className="notification-button" aria-label="Notifikasi tagihan" onClick={() => setActiveNav("Tagihan")}><Bell size={20} />{overdue.length > 0 && <span>{Math.min(overdue.length, 99)}</span>}</button>}
             <div className="user-badge"><span>{identity?.name?.slice(0, 1).toUpperCase() || "U"}</span><div><b>{identity?.name || "Pengguna"}</b><small>{role === "ADMIN" ? "Admin" : role === "EDITOR" ? "Sales / Editor" : "Viewer"}</small></div></div>
