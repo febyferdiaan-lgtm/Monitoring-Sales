@@ -1078,7 +1078,12 @@ export default function DashboardClient() {
   return (
     <main className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
-        <div className="brand"><span className="brand-mark">MDA</span><div><strong>PT MDA</strong><small>Amanah Sejahtera</small></div><button className="mobile-close" aria-label="Tutup menu" onClick={() => setSidebarOpen(false)}><X /></button></div>
+        <div className="brand">
+          <div className="brand-logo-shell">
+            <img className="brand-logo" src="/mda-logo.png" alt="PT MDA Sejahtera" />
+          </div>
+          <button className="mobile-close" aria-label="Tutup menu" onClick={() => setSidebarOpen(false)}><X /></button>
+        </div>
         <p className="nav-heading">MENU UTAMA</p>
         <nav aria-label="Navigasi utama">
           {navItems.filter((item) => item.id !== "Akses" || isAdmin).map((item) => <button key={item.id} className={activeNav === item.id ? "active" : ""} onClick={() => { setActiveNav(item.id); setSidebarOpen(false); }}><item.icon size={20} /><span><b>{item.label}</b><small>{item.caption}</small></span>{activeNav === item.id && <ChevronRight size={16} />}</button>)}
@@ -1252,7 +1257,9 @@ function DocumentPreview({ document }: { document: SalesDocument }) {
   return (
     <article className="print-document">
       <header className="print-header">
-        <div className="print-brand"><span>MDA</span><div><strong>PT MDA AMANAH SEJAHTERA</strong><small>General Supply & Industrial Solutions</small></div></div>
+        <div className="print-brand">
+          <img src="/mda-logo.png" alt="PT MDA Sejahtera" />
+        </div>
         <div className="print-title"><p>{document.document_type === "INVOICE" ? "INVOICE" : "QUOTATION"}</p><strong>{document.document_number}</strong></div>
       </header>
       <section className="print-info">
