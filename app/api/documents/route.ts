@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRole } from "../../authz";
 
 type DocumentItem = {
   spare_part_id?: number | null;
@@ -87,8 +88,10 @@ async function nextDocumentNumber(type: "QUOTATION" | "INVOICE", date: string) {
   return `${sequence}/MDA-${type === "INVOICE" ? "INV" : "QUOT"}/${romanMonths[month]}/${year}`;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const access = await requireRole(request, ["ADMIN", "EDITOR", "VIEWER"]);
+    if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
     const db = await getDb();
     const documents = await db.prepare("SELECT * FROM sales_documents ORDER BY created_at DESC, id DESC").all<Record<string, unknown>>();
@@ -108,6 +111,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await requireRole(request, ["ADMIN", "EDITOR"]);
+    if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
     const body = await request.json() as DocumentInput;
     const type = body.type === "INVOICE" ? "INVOICE" : "QUOTATION";

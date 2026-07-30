@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRole } from "../../authz";
+import { seedSparePartsFromExcel } from "../../excel-data";
 
 type SparePartInput = {
   id?: number;
@@ -37,9 +39,12 @@ async function ensureDatabase() {
   await db.prepare("CREATE INDEX IF NOT EXISTS spare_parts_name_idx ON spare_parts(name)").run();
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const access = await requireRole(request, ["ADMIN", "EDITOR", "VIEWER"]);
+    if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
+    await seedSparePartsFromExcel();
     const result = await (await getDb()).prepare(
       "SELECT * FROM spare_parts WHERE is_active = 1 ORDER BY updated_at DESC, name ASC"
     ).all();
@@ -51,6 +56,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await requireRole(request, ["ADMIN", "EDITOR"]);
+    if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
     const body = await request.json() as SparePartInput;
     const partNumber = String(body.part_number || "").trim().toUpperCase();
@@ -84,6 +91,8 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const access = await requireRole(request, ["ADMIN", "EDITOR"]);
+    if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
     const body = await request.json() as SparePartInput & { is_active?: boolean };
     if (!body.id) return NextResponse.json({ error: "Missing id" }, { status: 400 });

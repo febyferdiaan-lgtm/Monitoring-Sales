@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRole } from "../../authz";
+import { seedSalesFromExcel } from "../../excel-data";
 
 type InputRecord = {
   source_key?: string;
@@ -123,9 +125,12 @@ async function upsertRecords(records: InputRecord[]) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const access = await requireRole(request, ["ADMIN", "EDITOR", "VIEWER"]);
+    if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
+    await seedSalesFromExcel();
     const result = await (await getDb()).prepare("SELECT * FROM sales ORDER BY updated_at DESC, id DESC").all();
     return NextResponse.json({ data: result.results });
   } catch (error) {
@@ -135,6 +140,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await requireRole(request, ["ADMIN", "EDITOR"]);
+    if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
     const body = await request.json() as { action?: string; record?: InputRecord; records?: InputRecord[] };
     const records = body.action === "import" ? body.records ?? [] : body.record ? [body.record] : [];
@@ -148,6 +155,8 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const access = await requireRole(request, ["ADMIN", "EDITOR"]);
+    if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
     const body = await request.json() as { id?: number; amount_paid?: number; payment_status?: string };
     if (!body.id) return NextResponse.json({ error: "Missing id" }, { status: 400 });

@@ -208,6 +208,37 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .document-action-card > button { grid-column: 2; justify-self: start; }
 .document-kind { display: inline-flex; min-width: 68px; padding: 6px 8px; justify-content: center; border-radius: 7px; background: #e7f0ff; color: #2b68c8; font-size: 8px; font-weight: 800; }
 .document-kind.invoice { background: var(--red-soft); color: var(--red); }
+.excel-banner { background: linear-gradient(135deg, #edf5ff, #fbfdff); border-color: #d9e8fb; }
+.excel-banner .banner-icon { color: var(--blue); }
+.excel-table { min-width: 1180px; }
+.pagination { padding: 16px 0 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 10px; }
+.readonly-label { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 9px; }
+.user-badge { min-width: 150px; height: 42px; padding: 5px 10px 5px 6px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.user-badge > span { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 9px; background: var(--red-soft); color: var(--red); font-size: 11px; font-weight: 850; }
+.user-badge div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.user-badge b { max-width: 105px; overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.user-badge small { color: var(--muted); font-size: 8px; }
+.signout-link { color: var(--secondary); font-size: 9px; font-weight: 750; text-decoration: none; }
+.signout-link:hover { color: var(--red); }
+.access-role-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.access-role { min-height: 128px; padding: 20px; display: flex; align-items: flex-start; gap: 14px; border: 1px solid var(--border); border-radius: 17px; background: #fff; box-shadow: var(--shadow); }
+.access-role > svg { width: 42px; height: 42px; padding: 10px; flex: none; border-radius: 12px; }
+.access-role.admin > svg { background: var(--red-soft); color: var(--red); }
+.access-role.editor > svg { background: #e7f0ff; color: var(--blue); }
+.access-role.viewer > svg { background: #e8f5eb; color: var(--green); }
+.access-role strong { font-size: 14px; }
+.access-role p { margin: 7px 0 0; color: var(--secondary); font-size: 10px; line-height: 1.55; }
+.access-layout { display: grid; grid-template-columns: minmax(290px, .75fr) minmax(520px, 1.6fr); gap: 18px; align-items: start; }
+.access-form-panel { padding: 18px; }
+.one-column { grid-template-columns: 1fr; }
+.access-note { margin: 14px 0 0; padding: 11px; border-radius: 10px; background: #fff7e8; color: #946017; font-size: 9px; line-height: 1.5; }
+.users-table { min-width: 680px; }
+.users-table select { min-width: 130px; padding: 7px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 10px; }
+.excel-detail-modal { width: min(1050px, 100%); }
+.excel-detail-grid { padding-top: 18px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.excel-detail-grid > div { min-width: 0; min-height: 70px; padding: 11px; display: flex; flex-direction: column; gap: 7px; border-radius: 10px; background: var(--subtle); }
+.excel-detail-grid span { color: var(--muted); font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.excel-detail-grid strong { overflow-wrap: anywhere; font-size: 10px; line-height: 1.45; }
 
 .toast { position: fixed; right: 24px; bottom: 24px; z-index: 80; max-width: min(390px, calc(100vw - 32px)); padding: 13px 17px; border-radius: 12px; background: #252525; color: #fff; box-shadow: 0 10px 30px rgba(0,0,0,.2); font-size: 12px; animation: toastIn .18s ease-out; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } }
@@ -290,6 +321,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .customer-summary { grid-template-columns: 1fr; }
   .customer-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .line-item { grid-template-columns: 28px repeat(3, minmax(145px, 1fr)) 65px 65px 110px 120px 34px; overflow-x: auto; }
+  .user-badge, .signout-link { display: none; }
 }
 
 @media (max-width: 900px) {
@@ -311,12 +343,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .document-actions { grid-template-columns: 1fr; }
   .document-meta { grid-template-columns: 1fr 1fr; }
   .document-preview-modal { overflow-x: auto; }
+  .access-role-grid { grid-template-columns: 1fr; }
+  .access-layout { grid-template-columns: 1fr; }
+  .excel-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 620px) {
   .workspace { padding: 16px; }
   .topbar { margin-bottom: 16px; }
   .title-wrap h1 { font-size: 25px; }
+  .excel-detail-grid { grid-template-columns: 1fr; }
+  .pagination { align-items: stretch; flex-direction: column; }
   .page-description { max-width: 270px; line-height: 1.5; }
   .top-actions .primary-button { width: 42px; padding: 0; font-size: 0; }
   .kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
