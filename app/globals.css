@@ -195,6 +195,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .customer-finance .outstanding-value { color: var(--red); }
 .customer-empty { grid-column: 1 / -1; padding: 42px; color: var(--muted); text-align: center; font-size: 12px; }
 .receivable-summary { background: linear-gradient(135deg, #fff 0%, #fff3f3 100%); }
+.summary-receivables { margin-top: 20px; }
 .receivable-summary .customer-summary-metrics strong { color: var(--red); }
 .receivable-panel { overflow: hidden; }
 .receivable-table { min-width: 1080px; }
