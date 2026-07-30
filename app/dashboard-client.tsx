@@ -1271,7 +1271,7 @@ export default function DashboardClient() {
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <div className="brand">
           <div className="brand-logo-shell">
-            <img className="brand-logo" src="/mda-logo.png" alt="PT MDA Sejahtera" />
+            <img className="brand-logo" src="/mda-logo-sidebar.svg" alt="PT MDA Amanah Sejahtera" />
           </div>
           <button className="mobile-close" aria-label="Tutup menu" onClick={() => setSidebarOpen(false)}><X /></button>
         </div>
@@ -1494,7 +1494,7 @@ function DocumentPreview({ document }: { document: SalesDocument }) {
     <article className="print-document">
       <header className="print-header">
         <div className="print-brand">
-          <img src="/mda-logo.png" alt="PT MDA Sejahtera" />
+          <img src="/mda-logo.svg" alt="PT MDA Amanah Sejahtera" />
         </div>
         <div className="print-title"><p>{document.document_type === "INVOICE" ? "INVOICE" : "QUOTATION"}</p><strong>{document.document_number}</strong></div>
       </header>

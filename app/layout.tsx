@@ -19,8 +19,8 @@ export const metadata: Metadata = {
     "codex-preview": "development",
   },
   icons: {
-    icon: "/mda-logo.png",
-    shortcut: "/mda-logo.png",
+    icon: "/mda-logo.svg",
+    shortcut: "/mda-logo.svg",
   },
 };
 
