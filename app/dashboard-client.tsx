@@ -7,6 +7,7 @@ import {
   Bell,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Clock3,
   Database,
@@ -217,6 +218,7 @@ const navItems = [
   { id: "Dashboard", label: "Ringkasan", caption: "Kondisi hari ini", icon: LayoutDashboard },
   { id: "Pipeline", label: "Proses Penjualan", caption: "RFQ sampai lunas", icon: TrendingUp },
   { id: "Tagihan", label: "Tagihan", caption: "Invoice & jatuh tempo", icon: FileText },
+  { id: "Summary", label: "Summary Piutang", caption: "Outstanding customer", icon: WalletCards },
   { id: "Customer", label: "Customer", caption: "PO & invoice", icon: Users },
   { id: "Sparepart", label: "Master Sparepart", caption: "Part number & harga", icon: PackageSearch },
   { id: "Dokumen", label: "Quotation & Invoice", caption: "Buat dokumen jual", icon: ReceiptText },
@@ -340,6 +342,7 @@ export default function DashboardClient() {
   const [selectedExcelRow, setSelectedExcelRow] = useState<ExcelRecord | null>(null);
   const [selectedParts, setSelectedParts] = useState<ExcelRecord[]>([]);
   const [selectedPartsLoading, setSelectedPartsLoading] = useState(false);
+  const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
   const [userDraft, setUserDraft] = useState<{ name: string; email: string; role: AppRole }>({ name: "", email: "", role: "VIEWER" });
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -500,6 +503,49 @@ export default function DashboardClient() {
     invoiceValue: total.invoiceValue + customer.invoiceValue,
     outstanding: total.outstanding + customer.outstanding,
   }), { poCount: 0, invoiceCount: 0, invoiceValue: 0, outstanding: 0 }), [customers]);
+
+  const outstandingCustomers = useMemo(() => {
+    const grouped = new Map<string, { name: string; invoices: Sale[] }>();
+    filtered.forEach((sale) => {
+      if (!sale.invoice_no.trim()) return;
+      const remaining = Math.max(0, Number(sale.invoice_amount) - Number(sale.amount_paid));
+      if (remaining <= 0) return;
+      const name = sale.customer.trim() || "Tanpa Nama";
+      const key = name.toLocaleLowerCase("id-ID");
+      const current = grouped.get(key) ?? { name, invoices: [] };
+      const existing = current.invoices.find((invoice) => invoice.invoice_no.trim() === sale.invoice_no.trim());
+      if (existing) {
+        existing.invoice_amount += Number(sale.invoice_amount || 0);
+        existing.amount_paid += Number(sale.amount_paid || 0);
+      } else {
+        current.invoices.push({ ...sale });
+      }
+      grouped.set(key, current);
+    });
+
+    return Array.from(grouped.values())
+      .map((customer) => {
+        const totalInvoice = customer.invoices.reduce((sum, invoice) => sum + Number(invoice.invoice_amount || 0), 0);
+        const totalPaid = customer.invoices.reduce((sum, invoice) => sum + Number(invoice.amount_paid || 0), 0);
+        const totalOutstanding = customer.invoices.reduce((sum, invoice) => sum + Math.max(0, Number(invoice.invoice_amount) - Number(invoice.amount_paid)), 0);
+        const overdueInvoices = customer.invoices.filter((invoice) => agingStatus(invoice) === "Terlambat").length;
+        return {
+          ...customer,
+          totalInvoice,
+          totalPaid,
+          totalOutstanding,
+          overdueInvoices,
+        };
+      })
+      .sort((a, b) => b.totalOutstanding - a.totalOutstanding);
+  }, [filtered]);
+
+  const outstandingSummary = useMemo(() => outstandingCustomers.reduce((total, customer) => ({
+    customers: total.customers + 1,
+    invoices: total.invoices + customer.invoices.length,
+    outstanding: total.outstanding + customer.totalOutstanding,
+    overdue: total.overdue + customer.overdueInvoices,
+  }), { customers: 0, invoices: 0, outstanding: 0, overdue: 0 }), [outstandingCustomers]);
 
   const openAdd = () => {
     setDraft(emptyDraft);
@@ -902,6 +948,85 @@ export default function DashboardClient() {
         <article className="panel full-table"><div className="section-head"><div><p className="eyebrow">DAFTAR TAGIHAN</p><h2>Invoice dan Umur Tagihan</h2><p className="section-note">Satu nomor invoice ditampilkan satu kali dengan total seluruh part. Klik baris untuk melihat rinciannya.</p></div></div><InvoiceTable rows={filtered.filter((sale) => sale.invoice_no).sort((a, b) => agingDays(b) - agingDays(a))} onSelect={openSaleDetail} /></article>
       </section>
     );
+    if (activeNav === "Summary") return (
+      <section className="module-stack">
+        <div className="customer-summary receivable-summary">
+          <div className="customer-summary-copy">
+            <p className="eyebrow">SUMMARY PIUTANG CUSTOMER</p>
+            <h2>{compactMoney(outstandingSummary.outstanding)} belum dibayar</h2>
+            <p>Ringkasan total sisa tagihan per customer. Buka customer untuk melihat nomor invoice dan rincian part.</p>
+          </div>
+          <div className="customer-summary-metrics">
+            <div><span>Customer Menunggak</span><strong>{outstandingSummary.customers}</strong></div>
+            <div><span>Invoice Terbuka</span><strong>{outstandingSummary.invoices}</strong></div>
+            <div><span>Lewat Jatuh Tempo</span><strong>{outstandingSummary.overdue}</strong></div>
+            <div><span>Total Outstanding</span><strong>{compactMoney(outstandingSummary.outstanding)}</strong></div>
+          </div>
+        </div>
+
+        <article className="panel full-table receivable-panel">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">OUTSTANDING PER CUSTOMER</p>
+              <h2>Customer yang Belum Melakukan Pembayaran Keseluruhan</h2>
+              <p className="section-note">Diurutkan dari total sisa tagihan terbesar. Klik baris customer untuk membuka daftar invoice.</p>
+            </div>
+            <span className="period-chip">{year}</span>
+          </div>
+          <div className="table-scroll">
+            <table className="data-table receivable-table">
+              <thead><tr><th>Customer</th><th className="number">Invoice Terbuka</th><th className="number">Total Tagihan</th><th className="number">Sudah Dibayar</th><th className="number">Belum Dibayar</th><th>Status</th><th>Detail</th></tr></thead>
+              <tbody>
+                {outstandingCustomers.map((customer) => {
+                  const expanded = expandedCustomer === customer.name;
+                  return [
+                    <tr className="receivable-customer-row" key={customer.name} tabIndex={0} onClick={() => setExpandedCustomer(expanded ? null : customer.name)} onKeyDown={(event) => event.key === "Enter" && setExpandedCustomer(expanded ? null : customer.name)}>
+                      <td><b>{customer.name}</b><small>{customer.overdueInvoices ? `${customer.overdueInvoices} invoice terlambat` : "Belum melewati jatuh tempo"}</small></td>
+                      <td className="number">{customer.invoices.length}</td>
+                      <td className="number">{money.format(customer.totalInvoice)}</td>
+                      <td className="number paid-cell">{money.format(customer.totalPaid)}</td>
+                      <td className="number outstanding-cell">{money.format(customer.totalOutstanding)}</td>
+                      <td><span className={`status ${customer.overdueInvoices ? "terlambat" : "segera-jatuh-tempo"}`}>{customer.overdueInvoices ? "Perlu Ditagih" : "Belum Lunas"}</span></td>
+                      <td><button className="part-detail-button" type="button" aria-expanded={expanded}>{expanded ? "Tutup" : "Lihat Invoice"} <ChevronDown className={expanded ? "rotate-chevron" : ""} size={14} /></button></td>
+                    </tr>,
+                    expanded && (
+                      <tr className="receivable-detail-row" key={`${customer.name}-detail`}>
+                        <td colSpan={7}>
+                          <div className="receivable-invoices">
+                            <div className="receivable-invoices-head"><strong>Detail Invoice — {customer.name}</strong><span>{customer.invoices.length} invoice belum lunas</span></div>
+                            <div className="table-scroll">
+                              <table className="data-table invoice-detail-table">
+                                <thead><tr><th>No. Invoice</th><th>Proyek / PO</th><th>Jatuh Tempo</th><th className="number">Total Tagihan</th><th className="number">Terbayar</th><th className="number">Sisa</th><th>Status</th><th>Part</th></tr></thead>
+                                <tbody>
+                                  {customer.invoices.sort((a, b) => agingDays(b) - agingDays(a)).map((invoice) => {
+                                    const status = agingStatus(invoice);
+                                    return <tr key={invoice.id}>
+                                      <td><b>{invoice.invoice_no}</b><small>{invoice.created_at ? new Date(invoice.created_at).toLocaleDateString("id-ID") : "—"}</small></td>
+                                      <td><b>{invoice.project || "—"}</b><small>{invoice.po_no || "Tanpa nomor PO"}</small></td>
+                                      <td>{invoice.due_date ? new Date(invoice.due_date).toLocaleDateString("id-ID") : "—"}</td>
+                                      <td className="number">{money.format(invoice.invoice_amount)}</td>
+                                      <td className="number paid-cell">{money.format(invoice.amount_paid)}</td>
+                                      <td className="number outstanding-cell">{money.format(Math.max(0, invoice.invoice_amount - invoice.amount_paid))}</td>
+                                      <td><span className={`status ${status.toLowerCase().replaceAll(" ", "-")}`}>{status}</span></td>
+                                      <td><button className="part-detail-button" type="button" onClick={(event) => { event.stopPropagation(); void openSaleDetail(invoice); }}><Eye size={13} /> Buka Detail</button></td>
+                                    </tr>;
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ),
+                  ];
+                })}
+                {!outstandingCustomers.length && <tr><td colSpan={7} className="empty-state">Tidak ada tagihan customer yang belum dibayar pada filter ini.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+    );
     if (activeNav === "Customer") return (
       <section className="module-stack">
         <div className="customer-summary">
@@ -1114,7 +1239,7 @@ export default function DashboardClient() {
 
       <section className="workspace">
         <header className="topbar">
-          <div className="title-wrap"><button className="menu-button" aria-label="Buka menu" onClick={() => setSidebarOpen(true)}><Menu /></button><div><p className="eyebrow">PT MDA AMANAH SEJAHTERA</p><h1>{{ Dashboard: "Ringkasan Penjualan", Pipeline: "Proses Penjualan", Tagihan: "Kontrol Tagihan", Customer: "Data Customer", Sparepart: "Master Sparepart", Dokumen: "Quotation & Invoice", Excel: "Data Excel Lengkap", Akses: "Akses Pengguna", Laporan: "Laporan Penjualan" }[activeNav]}</h1><p className="page-description">{{ Dashboard: "Lihat kondisi bisnis dan prioritas hari ini.", Pipeline: "Pantau perjalanan setiap pekerjaan dari RFQ hingga lunas.", Tagihan: "Fokus pada invoice yang belum dibayar dan jatuh tempo.", Customer: "Bandingkan jumlah PO, invoice, pembayaran, dan outstanding.", Sparepart: "Kelola part number, satuan, brand, dan harga jual.", Dokumen: "Buat penawaran dan invoice itemized yang siap dicetak.", Excel: "Telusuri seluruh baris dan kolom sumber Monitoring Sales.xlsx.", Akses: "Atur peran Admin, Sales/Editor, dan Viewer.", Laporan: "Unduh dan periksa rekap penjualan sesuai filter." }[activeNav]}</p></div></div>
+          <div className="title-wrap"><button className="menu-button" aria-label="Buka menu" onClick={() => setSidebarOpen(true)}><Menu /></button><div><p className="eyebrow">PT MDA AMANAH SEJAHTERA</p><h1>{{ Dashboard: "Ringkasan Penjualan", Pipeline: "Proses Penjualan", Tagihan: "Kontrol Tagihan", Summary: "Summary Piutang Customer", Customer: "Data Customer", Sparepart: "Master Sparepart", Dokumen: "Quotation & Invoice", Excel: "Data Excel Lengkap", Akses: "Akses Pengguna", Laporan: "Laporan Penjualan" }[activeNav]}</h1><p className="page-description">{{ Dashboard: "Lihat kondisi bisnis dan prioritas hari ini.", Pipeline: "Pantau perjalanan setiap pekerjaan dari RFQ hingga lunas.", Tagihan: "Fokus pada invoice yang belum dibayar dan jatuh tempo.", Summary: "Lihat total belum dibayar per customer dan buka detail setiap invoice.", Customer: "Bandingkan jumlah PO, invoice, pembayaran, dan outstanding.", Sparepart: "Kelola part number, satuan, brand, dan harga jual.", Dokumen: "Buat penawaran dan invoice itemized yang siap dicetak.", Excel: "Telusuri seluruh baris dan kolom sumber Monitoring Sales.xlsx.", Akses: "Atur peran Admin, Sales/Editor, dan Viewer.", Laporan: "Unduh dan periksa rekap penjualan sesuai filter." }[activeNav]}</p></div></div>
           <div className="top-actions">
             {activeNav !== "Akses" && activeNav !== "Excel" && <label className="select-control"><CalendarDays size={17} /><select value={year} onChange={(event) => setYear(event.target.value)}>{years.map((item) => <option key={item}>{item}</option>)}</select></label>}
             {activeNav !== "Akses" && <label className="search-control"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={activeNav === "Sparepart" ? "Cari part number atau nama…" : activeNav === "Excel" ? "Cari semua data Excel…" : "Cari customer, RFQ, invoice…"} /></label>}

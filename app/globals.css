@@ -194,6 +194,23 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .customer-finance .paid-value { color: var(--green); }
 .customer-finance .outstanding-value { color: var(--red); }
 .customer-empty { grid-column: 1 / -1; padding: 42px; color: var(--muted); text-align: center; font-size: 12px; }
+.receivable-summary { background: linear-gradient(135deg, #fff 0%, #fff3f3 100%); }
+.receivable-summary .customer-summary-metrics strong { color: var(--red); }
+.receivable-panel { overflow: hidden; }
+.receivable-table { min-width: 1080px; }
+.receivable-customer-row td { padding-top: 14px; padding-bottom: 14px; }
+.receivable-customer-row > td:first-child { border-left: 3px solid transparent; }
+.receivable-customer-row:hover > td:first-child { border-left-color: var(--red); }
+.paid-cell { color: var(--green) !important; font-weight: 700; }
+.outstanding-cell { color: var(--red) !important; font-weight: 800; }
+.rotate-chevron { transform: rotate(180deg); }
+.receivable-detail-row, .receivable-detail-row:hover { background: #fbf8f8 !important; cursor: default !important; }
+.receivable-detail-row > td { padding: 0 14px 16px 28px; white-space: normal; }
+.receivable-invoices { padding: 15px; border: 1px solid #f0dede; border-radius: 13px; background: #fff; box-shadow: inset 4px 0 0 var(--red-soft); }
+.receivable-invoices-head { margin-bottom: 11px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.receivable-invoices-head strong { font-size: 12px; }
+.receivable-invoices-head span { color: var(--muted); font-size: 9px; }
+.invoice-detail-table { min-width: 980px; }
 .report-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .report-card { padding: 20px; display: flex; flex-direction: column; gap: 7px; }
 .report-card p { margin: 0; color: var(--secondary); font-size: 11px; }.report-card strong { font-size: 26px; }.report-card span { color: var(--muted); font-size: 10px; }
