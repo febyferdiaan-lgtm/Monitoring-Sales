@@ -105,6 +105,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .pipeline-panel { padding: 18px; margin-bottom: 20px; overflow: hidden; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
 .section-head h2 { margin: 0; font-size: 17px; letter-spacing: -.2px; }
+.section-note { margin: 6px 0 0; color: var(--muted); font-size: 10px; }
 .pipeline-flow { display: flex; align-items: stretch; overflow-x: auto; padding: 2px 1px 6px; scrollbar-width: thin; }
 .stage-fragment { display: flex; align-items: center; flex: 1 0 172px; min-width: 0; }
 .stage-card { width: 100%; min-width: 152px; height: 126px; padding: 13px; display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--border); border-radius: 14px; background: #fff; text-align: left; cursor: pointer; transition: .15s ease; }
@@ -140,6 +141,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .data-table td b { display: block; color: var(--charcoal); font-size: 10px; }
 .data-table td small { display: block; margin-top: 2px; color: var(--muted); font-size: 8px; }
 .data-table .number { text-align: right; font-variant-numeric: tabular-nums; }
+.part-detail-section { margin-top: 18px; padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--subtle); }
+.part-detail-head { margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.part-detail-head h3 { margin: 0; font-size: 15px; }
+.part-detail-head > strong { color: var(--red); font-size: 16px; font-variant-numeric: tabular-nums; }
+.detail-parts-table { min-width: 680px; background: #fff; border-radius: 10px; overflow: hidden; }
+.part-detail-button { min-height: 30px; padding: 0 9px; border: 1px solid var(--border); border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; background: #fff; color: var(--secondary); font-size: 9px; font-weight: 750; cursor: pointer; }
+.part-detail-button:hover { border-color: var(--red); color: var(--red); }
+.part-empty { margin: 0; padding: 20px; color: var(--muted); text-align: center; font-size: 10px; }
 .status { display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; padding: 5px 8px; font-size: 8px; font-weight: 750; }
 .status.lunas, .status.lancar { background: #e3f3e7; color: #2d8b47; }
 .status.segera-jatuh-tempo { background: #fff0d9; color: #b56c0c; }

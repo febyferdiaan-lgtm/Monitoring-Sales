@@ -67,10 +67,32 @@ export async function ensureExcelData() {
 export async function seedSalesFromExcel() {
   await ensureExcelData();
   const db = await getD1();
+  const documentTotals = new Map<string, { amount: number; paid: number }>();
+  for (const row of excelSeed.rawRecords) {
+    const documentKey = row.invoice_no
+      ? `invoice:${row.invoice_no.trim().toLowerCase()}`
+      : row.po_no
+        ? `po:${row.po_no.trim().toLowerCase()}`
+        : "";
+    if (!documentKey) continue;
+    const raw = JSON.parse(row.raw_json) as Record<string, string | number>;
+    const current = documentTotals.get(documentKey) ?? { amount: 0, paid: 0 };
+    current.amount += Number(row.amount || 0);
+    current.paid += Number(raw.payment_amount || 0);
+    documentTotals.set(documentKey, current);
+  }
   await db.prepare("DELETE FROM sales WHERE source_key LIKE 'seed-%' OR source_key LIKE 'xlsx-%'").run();
   for (let offset = 0; offset < excelSeed.sales.length; offset += 35) {
     await db.batch(excelSeed.sales.slice(offset, offset + 35).map((row) => {
       const now = new Date().toISOString();
+      const documentKey = row.invoice_no
+        ? `invoice:${row.invoice_no.trim().toLowerCase()}`
+        : row.po_no
+          ? `po:${row.po_no.trim().toLowerCase()}`
+          : "";
+      const totals = documentKey ? documentTotals.get(documentKey) : undefined;
+      const invoiceAmount = totals?.amount ?? row.invoice_amount;
+      const amountPaid = totals?.paid ?? row.amount_paid;
       return db.prepare(
         `INSERT INTO sales (
           source_key, customer, location, transaction_type, project, rfq_no, quotation_no,
@@ -87,8 +109,8 @@ export async function seedSalesFromExcel() {
           notes=excluded.notes, updated_at=excluded.updated_at`
       ).bind(
         row.source_key, row.customer, row.location, row.transaction_type, row.project, row.rfq_no,
-        row.quotation_no, row.po_no, row.delivery_no, row.invoice_no, row.invoice_amount,
-        row.amount_paid, row.due_date, row.payment_date, row.payment_status,
+        row.quotation_no, row.po_no, row.delivery_no, row.invoice_no, invoiceAmount,
+        amountPaid, row.due_date, row.payment_date, row.payment_status,
         row.transaction_status, row.notes, row.created_at, now,
       );
     }));

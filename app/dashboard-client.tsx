@@ -338,6 +338,8 @@ export default function DashboardClient() {
   const [excelPages, setExcelPages] = useState(1);
   const [excelTotal, setExcelTotal] = useState(0);
   const [selectedExcelRow, setSelectedExcelRow] = useState<ExcelRecord | null>(null);
+  const [selectedParts, setSelectedParts] = useState<ExcelRecord[]>([]);
+  const [selectedPartsLoading, setSelectedPartsLoading] = useState(false);
   const [userDraft, setUserDraft] = useState<{ name: string; email: string; role: AppRole }>({ name: "", email: "", role: "VIEWER" });
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -587,6 +589,24 @@ export default function DashboardClient() {
       setNotice("Status pembayaran belum berhasil diperbarui.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openSaleDetail = async (sale: Sale) => {
+    setSelected(sale);
+    setSelectedParts([]);
+    const documentType = sale.invoice_no ? "invoice" : sale.po_no ? "po" : "";
+    const documentNo = sale.invoice_no || sale.po_no;
+    if (!documentType || !documentNo) return;
+    setSelectedPartsLoading(true);
+    try {
+      const response = await fetch(`/api/excel?document_type=${documentType}&document_no=${encodeURIComponent(documentNo)}`);
+      if (!response.ok) throw new Error();
+      setSelectedParts((await response.json()).data ?? []);
+    } catch {
+      setNotice("Detail part belum berhasil dimuat.");
+    } finally {
+      setSelectedPartsLoading(false);
     }
   };
 
@@ -847,7 +867,7 @@ export default function DashboardClient() {
 
         <article className="panel aging-panel">
           <div className="section-head"><div><p className="eyebrow">PERLU DITINDAKLANJUTI</p><h2>Umur Tagihan</h2></div><button className="icon-button" aria-label="Muat ulang data" onClick={loadSales}><RefreshCw size={17} /></button></div>
-          <InvoiceTable rows={filtered.filter((sale) => sale.invoice_no).sort((a, b) => agingDays(b) - agingDays(a)).slice(0, 7)} onSelect={setSelected} />
+          <InvoiceTable rows={filtered.filter((sale) => sale.invoice_no).sort((a, b) => agingDays(b) - agingDays(a)).slice(0, 7)} onSelect={openSaleDetail} />
           <button className="see-all" onClick={() => setActiveNav("Tagihan")}>Lihat Semua <ChevronRight size={16} /></button>
         </article>
       </section>
@@ -873,13 +893,13 @@ export default function DashboardClient() {
             ))}
           </div>
         </div>
-        <SalesTable rows={filtered} onSelect={setSelected} />
+        <SalesTable rows={filtered} onSelect={openSaleDetail} />
       </section>
     );
     if (activeNav === "Tagihan") return (
       <section className="module-stack">
         <div className="module-banner red"><span className="banner-icon"><Clock3 /></span><div><p className="eyebrow">KONTROL TAGIHAN</p><h2>{compactMoney(outstanding)} belum diterima</h2><p>{overdue.length} invoice melewati tanggal jatuh tempo dan perlu ditindaklanjuti.</p></div></div>
-        <article className="panel full-table"><div className="section-head"><div><p className="eyebrow">DAFTAR TAGIHAN</p><h2>Invoice dan Umur Tagihan</h2></div></div><InvoiceTable rows={filtered.filter((sale) => sale.invoice_no).sort((a, b) => agingDays(b) - agingDays(a))} onSelect={setSelected} /></article>
+        <article className="panel full-table"><div className="section-head"><div><p className="eyebrow">DAFTAR TAGIHAN</p><h2>Invoice dan Umur Tagihan</h2><p className="section-note">Satu nomor invoice ditampilkan satu kali dengan total seluruh part. Klik baris untuk melihat rinciannya.</p></div></div><InvoiceTable rows={filtered.filter((sale) => sale.invoice_no).sort((a, b) => agingDays(b) - agingDays(a))} onSelect={openSaleDetail} /></article>
       </section>
     );
     if (activeNav === "Customer") return (
@@ -1245,6 +1265,43 @@ export default function DashboardClient() {
               <div><dt>Nilai Invoice</dt><dd>{money.format(selected.invoice_amount)}</dd></div><div><dt>Outstanding</dt><dd>{money.format(Math.max(0, selected.invoice_amount - selected.amount_paid))}</dd></div>
               <div className="wide"><dt>Catatan</dt><dd>{selected.notes || "Tidak ada catatan."}</dd></div>
             </dl>
+            {(selected.invoice_no || selected.po_no) && (
+              <section className="part-detail-section">
+                <div className="part-detail-head">
+                  <div>
+                    <p className="eyebrow">LAMPIRAN DETAIL</p>
+                    <h3>{selectedPartsLoading ? "Memuat part…" : `${selectedParts.length} part dalam dokumen`}</h3>
+                  </div>
+                  <strong>{money.format(selected.invoice_amount)}</strong>
+                </div>
+                {!selectedPartsLoading && selectedParts.length > 0 && (
+                  <div className="table-scroll">
+                    <table className="data-table detail-parts-table">
+                      <thead><tr><th>Part Number / Deskripsi</th><th>QTY</th><th>Satuan</th><th>Nilai Part</th><th>Detail</th></tr></thead>
+                      <tbody>
+                        {selectedParts.map((part) => {
+                          const prefix = selected.invoice_no ? "invoice" : "po";
+                          const partNumber = part.raw[`${prefix}_part_number`] || part.part_number || "—";
+                          const description = part.raw[`${prefix}_description`] || part.description || "—";
+                          const quantity = part.raw[`${prefix}_qty`] || "—";
+                          const unit = part.raw[`${prefix}_uom`] || "—";
+                          return (
+                            <tr key={part.id}>
+                              <td><b>{String(partNumber)}</b><small>{String(description)}</small></td>
+                              <td>{String(quantity)}</td>
+                              <td>{String(unit)}</td>
+                              <td className="number">{money.format(Number(part.amount || 0))}</td>
+                              <td><button className="part-detail-button" onClick={() => setSelectedExcelRow(part)}><Eye size={14} /> Buka</button></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {!selectedPartsLoading && !selectedParts.length && <p className="part-empty">Belum ada rincian part dari sumber Excel untuk dokumen ini.</p>}
+              </section>
+            )}
             <div className="form-actions">{canEdit && stageOf(selected) !== "Payment" && selected.invoice_no && <button className="primary-button" disabled={saving} onClick={() => markPaid(selected)}><CheckCircle2 size={17} /> Konfirmasi Lunas</button>}<button className="secondary-button" onClick={() => setSelected(null)}>Tutup</button></div>
           </section>
         </div>
@@ -1288,7 +1345,7 @@ function InvoiceTable({ rows, onSelect }: { rows: Sale[]; onSelect: (sale: Sale)
   return (
     <div className="table-scroll">
       <table className="data-table">
-        <thead><tr><th>Customer</th><th>No. Invoice</th><th>Amount</th><th>Aging</th><th>Status</th></tr></thead>
+        <thead><tr><th>Customer</th><th>No. Invoice</th><th>Total Tagihan</th><th>Aging</th><th>Status</th></tr></thead>
         <tbody>
           {rows.length ? rows.map((sale) => {
             const status = agingStatus(sale);
@@ -1303,8 +1360,8 @@ function InvoiceTable({ rows, onSelect }: { rows: Sale[]; onSelect: (sale: Sale)
 function SalesTable({ rows, onSelect }: { rows: Sale[]; onSelect: (sale: Sale) => void }) {
   return (
     <article className="panel full-table">
-      <div className="section-head"><div><p className="eyebrow">DATA TRANSAKSI</p><h2>{rows.length} pekerjaan terpantau</h2></div></div>
-      <div className="table-scroll"><table className="data-table sales-table"><thead><tr><th>Customer / Project</th><th>RFQ</th><th>PO</th><th>Invoice</th><th>Nilai</th><th>Tahap</th></tr></thead><tbody>
+      <div className="section-head"><div><p className="eyebrow">DATA TRANSAKSI</p><h2>{rows.length} dokumen terpantau</h2><p className="section-note">Nomor PO atau invoice yang sama diringkas menjadi satu total. Klik untuk membuka rincian part.</p></div></div>
+      <div className="table-scroll"><table className="data-table sales-table"><thead><tr><th>Customer / Project</th><th>RFQ</th><th>PO</th><th>Invoice</th><th>Total Tagihan</th><th>Tahap</th></tr></thead><tbody>
         {rows.map((sale) => <tr key={sale.id} tabIndex={0} onClick={() => onSelect(sale)} onKeyDown={(event) => event.key === "Enter" && onSelect(sale)}><td><b>{sale.customer}</b><small>{sale.project}</small></td><td>{sale.rfq_no || "—"}</td><td>{sale.po_no || "—"}</td><td>{sale.invoice_no || "—"}</td><td className="number">{money.format(sale.invoice_amount)}</td><td><span className="status stage">{stageOf(sale)}</span></td></tr>)}
       </tbody></table></div>
     </article>
