@@ -36,8 +36,8 @@ export async function ensureExcelData() {
     db.prepare("CREATE INDEX IF NOT EXISTS excel_rows_documents_idx ON excel_rows(rfq_no, quotation_no, po_no, invoice_no)"),
   ]);
   const exists = await db.prepare(
-    "SELECT import_version FROM data_imports WHERE import_version = ?",
-  ).bind(excelSeed.importVersion).first();
+    "SELECT import_version FROM data_imports ORDER BY imported_at DESC LIMIT 1",
+  ).first<{ import_version: string }>();
   if (exists) return;
   await db.prepare("DELETE FROM excel_rows WHERE import_version <> ?").bind(excelSeed.importVersion).run();
   await db.prepare("DELETE FROM data_imports WHERE import_version <> ?").bind(excelSeed.importVersion).run();
@@ -67,6 +67,10 @@ export async function ensureExcelData() {
 export async function seedSalesFromExcel() {
   await ensureExcelData();
   const db = await getD1();
+  const activeImport = await db.prepare(
+    "SELECT import_version FROM data_imports ORDER BY imported_at DESC LIMIT 1",
+  ).first<{ import_version: string }>();
+  if (activeImport?.import_version !== excelSeed.importVersion) return;
   const documentTotals = new Map<string, { amount: number; paid: number }>();
   for (const row of excelSeed.rawRecords) {
     const documentKey = row.invoice_no

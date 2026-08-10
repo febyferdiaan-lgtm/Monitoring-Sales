@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Clock3,
   Database,
+  Download,
   Eye,
   FileBarChart,
   FileSpreadsheet,
@@ -166,6 +167,32 @@ type ExcelRecord = {
   raw: Record<string, string | number>;
 };
 
+type ExcelSource = {
+  source_file: string;
+  imported_at: string;
+  row_count: number;
+};
+
+type PendingExcelImport = {
+  source_file: string;
+  rows: Array<Record<string, unknown>>;
+  records: Array<DraftSale & { source_key: string; created_at: string }>;
+};
+
+const excelRawKeys = [
+  "no", "customer", "location", "transaction", "project", "rfq_date", "rfq_no",
+  "rfq_part_number", "rfq_description", "rfq_qty", "rfq_uom", "quotation_date",
+  "quotation_no", "quotation_part_number", "quotation_description", "quotation_qty",
+  "quotation_uom", "quotation_price", "quotation_amount", "po_date", "po_no",
+  "po_part_number", "po_description", "po_qty", "po_uom", "po_price", "po_amount",
+  "delivery_date", "delivery_no", "invoice_date", "invoice_no", "invoice_part_number",
+  "invoice_description", "invoice_qty", "invoice_uom", "invoice_dpp", "invoice_amount_dpp",
+  "invoice_ppn", "invoice_amount", "invoice_pph23", "total_ar", "payment_type",
+  "payment_term", "invoice_due_date", "invoice_aging", "received_due_date", "payment_amount",
+  "transfer_date", "payment_status", "payment_difference", "payment_note",
+  "transaction_status", "remark",
+] as const;
+
 const emptyDraft: DraftSale = {
   customer: "",
   location: "",
@@ -239,7 +266,7 @@ const navItems = [
   { id: "Customer", label: "Customer", caption: "PO & invoice", icon: Users },
   { id: "Sparepart", label: "Master Sparepart", caption: "Part number & harga", icon: PackageSearch },
   { id: "Dokumen", label: "Quotation & Invoice", caption: "Buat dokumen jual", icon: ReceiptText },
-  { id: "Excel", label: "Data Excel Lengkap", caption: "606 baris sumber", icon: Database },
+  { id: "Excel", label: "Data Excel Lengkap", caption: "Sumber data utama", icon: Database },
   { id: "Laporan", label: "Laporan", caption: "Rekap data", icon: FileBarChart },
   { id: "Akses", label: "Akses Pengguna", caption: "Admin, editor, viewer", icon: ShieldCheck },
 ];
@@ -385,6 +412,8 @@ export default function DashboardClient() {
   const [excelPage, setExcelPage] = useState(1);
   const [excelPages, setExcelPages] = useState(1);
   const [excelTotal, setExcelTotal] = useState(0);
+  const [excelSource, setExcelSource] = useState<ExcelSource | null>(null);
+  const [pendingExcelImport, setPendingExcelImport] = useState<PendingExcelImport | null>(null);
   const [selectedExcelRow, setSelectedExcelRow] = useState<ExcelRecord | null>(null);
   const [selectedParts, setSelectedParts] = useState<ExcelRecord[]>([]);
   const [selectedPartsLoading, setSelectedPartsLoading] = useState(false);
@@ -458,6 +487,7 @@ export default function DashboardClient() {
     setExcelPage(payload.page ?? 1);
     setExcelPages(payload.pages ?? 1);
     setExcelTotal(payload.total ?? 0);
+    setExcelSource(payload.source ?? null);
   };
 
   useEffect(() => {
@@ -662,37 +692,53 @@ export default function DashboardClient() {
       const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
       const sheet = workbook.Sheets.RAW ?? workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
-      const records = rows.slice(5).filter((row) => row[2] || row[7]).map((row, index) => ({
-        source_key: `xlsx-${row[1] || index}-${row[7]}-${row[14] || row[32] || index}`,
-        customer: String(row[2] || "Tanpa Nama"),
-        location: String(row[3] || ""),
-        transaction_type: String(row[4] || ""),
-        project: String(row[5] || ""),
-        rfq_no: String(row[7] || ""),
-        quotation_no: String(row[13] || ""),
-        po_no: String(row[21] || ""),
-        delivery_no: String(row[29] || ""),
-        invoice_no: String(row[31] || ""),
-        invoice_amount: Number(row[41] || row[39] || 0),
-        amount_paid: Number(row[47] || 0),
-        due_date: isoDate(row[44]),
-        payment_date: isoDate(row[48]),
-        payment_status: String(row[49] || "OPEN"),
-        transaction_status: String(row[52] || ""),
-        notes: String(row[53] || row[51] || ""),
-      }));
-      if (!records.length) throw new Error("empty");
-      const response = await fetch("/api/sales", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "import", records }),
+      const headerIndex = rows.slice(0, 10).findIndex((row) => row.some((cell) => String(cell).trim().toLowerCase() === "customer"));
+      const canonicalLayout = headerIndex >= 0 && rows[headerIndex].some((cell) => String(cell).trim().toLowerCase() === "rfq_no");
+      const dataStart = canonicalLayout ? headerIndex + 1 : 5;
+      const columnOffset = canonicalLayout ? 0 : 1;
+      const sourceRows = rows.slice(dataStart).map((row, index) => {
+        const raw = Object.fromEntries(excelRawKeys.map((key, keyIndex) => {
+          const value = row[keyIndex + columnOffset];
+          return [key, value instanceof Date ? isoDate(value) : typeof value === "number" ? value : String(value ?? "").trim()];
+        })) as Record<(typeof excelRawKeys)[number], string | number>;
+        return { raw, rowNumber: index + dataStart + 1 };
+      }).filter(({ raw }) => raw.customer || raw.rfq_no);
+      const rawRows = sourceRows.map(({ raw, rowNumber }) => {
+        return {
+          row_number: rowNumber,
+          customer: String(raw.customer || ""), project: String(raw.project || ""), rfq_no: String(raw.rfq_no || ""),
+          quotation_no: String(raw.quotation_no || ""), po_no: String(raw.po_no || ""), invoice_no: String(raw.invoice_no || ""),
+          part_number: String(raw.invoice_part_number || raw.po_part_number || raw.quotation_part_number || raw.rfq_part_number || ""),
+          description: String(raw.invoice_description || raw.po_description || raw.quotation_description || raw.rfq_description || ""),
+          amount: Number(raw.total_ar || raw.invoice_amount || 0), payment_status: String(raw.payment_status || ""), raw,
+        };
       });
-      if (!response.ok) throw new Error("server");
-      const payload = await response.json();
-      setNotice(`${payload.imported ?? records.length} baris Excel berhasil disinkronkan.`);
-      await loadSales();
-    } catch {
-      setNotice("Format Excel belum dikenali. Pastikan sheet RAW mengikuti file Monitoring Sales MDA.");
+      const grouped = new Map<string, DraftSale & { source_key: string; created_at: string }>();
+      sourceRows.forEach(({ raw, rowNumber }) => {
+        const documentType = raw.invoice_no ? "invoice" : raw.po_no ? "po" : raw.quotation_no ? "quotation" : raw.rfq_no ? "rfq" : "row";
+        const documentNo = String(raw.invoice_no || raw.po_no || raw.quotation_no || raw.rfq_no || rowNumber).trim();
+        const key = `upload:${documentType}:${documentNo.toLocaleLowerCase("id-ID")}`;
+        const current = grouped.get(key) ?? {
+          source_key: key, customer: String(raw.customer || "Tanpa Nama"), location: String(raw.location || ""),
+          transaction_type: String(raw.transaction || ""), project: String(raw.project || ""), rfq_no: String(raw.rfq_no || ""),
+          quotation_no: String(raw.quotation_no || ""), po_no: String(raw.po_no || ""), delivery_no: String(raw.delivery_no || ""),
+          invoice_no: String(raw.invoice_no || ""), invoice_amount: 0, amount_paid: 0, due_date: isoDate(raw.invoice_due_date),
+          payment_date: isoDate(raw.transfer_date), payment_status: String(raw.payment_status || "OPEN"), transaction_status: String(raw.transaction_status || ""),
+          notes: String(raw.remark || raw.payment_note || ""), created_at: isoDate(raw.invoice_date || raw.delivery_date || raw.po_date || raw.quotation_date || raw.rfq_date) || new Date().toISOString(),
+        };
+        current.invoice_amount += Number(raw.total_ar || raw.invoice_amount || 0);
+        current.amount_paid += Number(raw.payment_amount || 0);
+        if (raw.payment_status) current.payment_status = String(raw.payment_status);
+        if (raw.transaction_status) current.transaction_status = String(raw.transaction_status);
+        if (raw.remark || raw.payment_note) current.notes = String(raw.remark || raw.payment_note);
+        grouped.set(key, current);
+      });
+      const records = Array.from(grouped.values());
+      if (!rawRows.length || !records.length) throw new Error("File tidak memiliki baris data pada sheet RAW.");
+      setPendingExcelImport({ source_file: file.name, rows: rawRows, records });
+      setNotice(`${rawRows.length} baris siap diproses. Konfirmasikan pergantian sumber data utama.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Format Excel belum dikenali. Pastikan tersedia sheet RAW dengan format Monitoring Sales MDA.");
     } finally {
       setSaving(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -727,6 +773,30 @@ export default function DashboardClient() {
       await loadPaymentConfirmations();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Konfirmasi pembayaran belum berhasil dikirim.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmExcelImport = async () => {
+    if (!pendingExcelImport) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/excel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pendingExcelImport),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Sumber Excel belum berhasil diperbarui.");
+      const sourceFile = pendingExcelImport.source_file;
+      setPendingExcelImport(null);
+      setNotice(`${payload.imported_rows ?? 0} baris dari ${sourceFile} menjadi sumber utama. Summary telah diperbarui.`);
+      setSearch("");
+      await Promise.all([loadSales(), loadExcelData(1, ""), loadPaymentConfirmations()]);
+      setActiveNav("Dashboard");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Sumber Excel belum berhasil diperbarui.");
     } finally {
       setSaving(false);
     }
@@ -923,6 +993,72 @@ export default function DashboardClient() {
     anchor.download = "laporan-monitoring-sales-mda.csv";
     anchor.click();
     URL.revokeObjectURL(url);
+  };
+
+  const downloadUpdatedExcel = async () => {
+    setSaving(true);
+    setNotice("Menyiapkan file Excel dengan Summary terbaru…");
+    try {
+      const [XLSX, response] = await Promise.all([import("xlsx"), fetch("/api/excel?all=1")]);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Data sumber Excel belum dapat diunduh.");
+      const allRows = (payload.data ?? []) as ExcelRecord[];
+      const sourceSheet = XLSX.utils.json_to_sheet(
+        allRows.map((row) => row.raw),
+        { header: [...excelRawKeys] },
+      );
+      sourceSheet["!cols"] = excelRawKeys.map((key) => ({ wch: key.includes("description") || key.includes("note") || key === "remark" ? 28 : key.includes("no") ? 22 : 15 }));
+
+      const currentSummary = sales.filter((sale) => sale.po_no.trim());
+      const totalInvoice = currentSummary.reduce((sum, sale) => sum + Number(sale.invoice_amount || 0), 0);
+      const totalPaid = currentSummary.reduce((sum, sale) => sum + Number(sale.amount_paid || 0), 0);
+      const totalOutstanding = currentSummary.reduce((sum, sale) => sum + Math.max(0, Number(sale.invoice_amount) - Number(sale.amount_paid)), 0);
+      const overdueCount = currentSummary.filter((sale) => agingStatus(sale) === "Terlambat").length;
+      const summaryRows: (string | number)[][] = [
+        ["MONITORING SALES MDA — SUMMARY TERBARU"],
+        ["Sumber Data", payload.source?.source_file || excelSource?.source_file || "Monitoring Sales.xlsx"],
+        ["Diperbarui", new Date().toLocaleString("id-ID")],
+        [],
+        ["Jumlah PO", "Jumlah Invoice", "Nilai Transaksi", "Sudah Dibayar", "Belum Dibayar", "Lewat Jatuh Tempo"],
+        [new Set(currentSummary.map((sale) => sale.po_no).filter(Boolean)).size, new Set(currentSummary.map((sale) => sale.invoice_no).filter(Boolean)).size, totalInvoice, totalPaid, totalOutstanding, overdueCount],
+        [],
+        ["Customer", "Project", "RFQ", "Quotation", "PO", "Surat Jalan", "Invoice", "Nilai Invoice", "Terbayar", "Outstanding", "Jatuh Tempo", "Status Pembayaran", "Status Aging"],
+        ...currentSummary.map((sale) => [
+          sale.customer, sale.project, sale.rfq_no, sale.quotation_no, sale.po_no, sale.delivery_no,
+          sale.invoice_no, sale.invoice_amount, sale.amount_paid, Math.max(0, sale.invoice_amount - sale.amount_paid),
+          sale.due_date, sale.payment_status, agingStatus(sale),
+        ]),
+      ];
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+      summarySheet["!cols"] = [{ wch: 28 }, { wch: 28 }, { wch: 22 }, { wch: 22 }, { wch: 25 }, { wch: 22 }, { wch: 24 }, { wch: 17 }, { wch: 17 }, { wch: 17 }, { wch: 16 }, { wch: 18 }, { wch: 18 }];
+
+      const customerMap = new Map<string, { invoices: number; total: number; paid: number; outstanding: number; overdue: number }>();
+      currentSummary.forEach((sale) => {
+        const current = customerMap.get(sale.customer) ?? { invoices: 0, total: 0, paid: 0, outstanding: 0, overdue: 0 };
+        if (sale.invoice_no) current.invoices += 1;
+        current.total += Number(sale.invoice_amount || 0);
+        current.paid += Number(sale.amount_paid || 0);
+        current.outstanding += Math.max(0, Number(sale.invoice_amount) - Number(sale.amount_paid));
+        if (agingStatus(sale) === "Terlambat") current.overdue += 1;
+        customerMap.set(sale.customer, current);
+      });
+      const customerSheet = XLSX.utils.json_to_sheet(Array.from(customerMap, ([customer, value]) => ({
+        Customer: customer, "Jumlah Invoice": value.invoices, "Total Tagihan": value.total,
+        "Sudah Dibayar": value.paid, "Belum Dibayar": value.outstanding, "Invoice Terlambat": value.overdue,
+      })));
+      customerSheet["!cols"] = [{ wch: 32 }, { wch: 15 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, sourceSheet, "RAW");
+      XLSX.utils.book_append_sheet(workbook, summarySheet, "SUMMARY");
+      XLSX.utils.book_append_sheet(workbook, customerSheet, "PIUTANG CUSTOMER");
+      XLSX.writeFile(workbook, `Monitoring Sales MDA - Updated ${new Date().toISOString().slice(0, 10)}.xlsx`, { compression: true });
+      setNotice("File Excel sumber dengan Summary terbaru berhasil diunduh.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "File Excel belum berhasil dibuat.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const saveUser = async (event: FormEvent) => {
@@ -1249,8 +1385,11 @@ export default function DashboardClient() {
       <section className="module-stack">
         <div className="module-banner excel-banner">
           <span className="banner-icon"><Database /></span>
-          <div><p className="eyebrow">SUMBER DATA UTAMA</p><h2>{excelTotal} baris Excel tersinkron</h2><p>Seluruh tahapan RFQ, quotation, PO, surat jalan, invoice, pembayaran, status, dan catatan tersimpan dari Monitoring Sales.xlsx.</p></div>
-          <button className="secondary-button" onClick={() => loadExcelData(1, search)}><Search size={16} /> Terapkan Pencarian</button>
+          <div><p className="eyebrow">SUMBER DATA UTAMA</p><h2>{excelTotal} baris Excel tersinkron</h2><p>Unggah file terbaru untuk mengganti sumber utama dan menghitung ulang seluruh Summary.</p>{excelSource && <small className="excel-source-meta">{excelSource.source_file} · diperbarui {new Date(excelSource.imported_at).toLocaleString("id-ID")}</small>}</div>
+          <div className="excel-source-actions">
+            {canEdit && <button className="secondary-button" onClick={() => fileRef.current?.click()} disabled={saving}><Upload size={16} /> Update Sumber Excel</button>}
+            <button className="primary-button" onClick={downloadUpdatedExcel} disabled={saving}><Download size={16} /> Download Excel + Summary</button>
+          </div>
         </div>
         <article className="panel full-table">
           <div className="section-head"><div><p className="eyebrow">DATA RAW EXCEL</p><h2>Baris {excelRows[0]?.row_number ?? 0}–{excelRows.at(-1)?.row_number ?? 0}</h2></div><span className="period-chip">Halaman {excelPage} / {excelPages}</span></div>
@@ -1355,7 +1494,7 @@ export default function DashboardClient() {
     );
     return (
       <section className="module-stack">
-        <div className="module-banner green"><span className="banner-icon"><FileBarChart /></span><div><p className="eyebrow">LAPORAN PENJUALAN</p><h2>Ringkasan siap diunduh</h2><p>Data mengikuti pencarian, periode, dan tahap pipeline yang aktif.</p></div><button className="primary-button" onClick={exportCsv}><Upload size={17} /> Unduh CSV</button></div>
+        <div className="module-banner green"><span className="banner-icon"><FileBarChart /></span><div><p className="eyebrow">LAPORAN PENJUALAN</p><h2>Ringkasan siap diunduh</h2><p>Unduh CSV sesuai filter atau file sumber Excel lengkap dengan Summary terbaru.</p></div><div className="report-download-actions"><button className="secondary-button" onClick={exportCsv}><Download size={17} /> Unduh CSV</button><button className="primary-button" onClick={downloadUpdatedExcel} disabled={saving}><FileSpreadsheet size={17} /> Excel + Summary</button></div></div>
         <section className="report-grid">
           <article className="panel report-card"><p>Total transaksi</p><strong>{filtered.length}</strong><span>{customers.length} customer</span></article>
           <article className="panel report-card"><p>Nilai penjualan</p><strong>{compactMoney(pipelineValue)}</strong><span>{winRate}% selesai</span></article>
@@ -1429,6 +1568,20 @@ export default function DashboardClient() {
       </section>
 
       {notice && <div className="toast" role="status">{notice}</div>}
+
+      {pendingExcelImport && (
+        <div className="modal-backdrop" onMouseDown={() => !saving && setPendingExcelImport(null)}>
+          <section className="modal excel-import-modal" role="dialog" aria-modal="true" aria-labelledby="excel-import-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head"><div><p className="eyebrow">UPDATE SUMBER DATA UTAMA</p><h2 id="excel-import-title">Konfirmasi file Excel baru</h2><p>{pendingExcelImport.source_file}</p></div><button className="icon-button" onClick={() => setPendingExcelImport(null)} aria-label="Tutup"><X /></button></div>
+            <div className="excel-import-overview">
+              <div><span>Baris RAW</span><strong>{pendingExcelImport.rows.length}</strong></div>
+              <div><span>Transaksi terhitung</span><strong>{pendingExcelImport.records.length}</strong></div>
+            </div>
+            <div className="excel-import-warning"><AlertTriangle size={20} /><div><b>File ini akan menggantikan sumber Excel utama</b><p>Data Excel sebelumnya diganti, lalu Summary, customer, piutang, dan pipeline dihitung ulang. Data manual tetap dipertahankan.</p></div></div>
+            <div className="form-actions"><button className="secondary-button" disabled={saving} onClick={() => setPendingExcelImport(null)}>Batal</button><button className="primary-button" disabled={saving} onClick={confirmExcelImport}><Upload size={16} /> {saving ? "Memperbarui…" : "Ganti Sumber & Update Summary"}</button></div>
+          </section>
+        </div>
+      )}
 
       {showAdd && (
         <div className="modal-backdrop" onMouseDown={() => setShowAdd(false)}>
