@@ -37,9 +37,13 @@ body { margin: 0; background: var(--canvas); color: var(--charcoal); font-family
 .login-card .password-toggle { position: absolute; top: 50%; right: 7px; min-height: 34px; padding: 0 10px; transform: translateY(-50%); background: #eef2f7; color: #173c6b; font-size: 12px; }
 .login-card .login-submit { margin-top: 8px; background: linear-gradient(135deg, #173c6b, #245894); box-shadow: 0 8px 20px rgba(23, 60, 107, .2); }
 .login-card .login-submit:hover { background: linear-gradient(135deg, #12335d, #1d4c83); }
+.login-card .forgot-password { min-height: 34px; margin-top: 1px; padding: 3px 8px; background: transparent; color: #245894; font-size: 13px; font-weight: 650; }
+.login-card .forgot-password:hover { color: #173c6b; text-decoration: underline; }
 .login-card button:disabled { opacity: .65; cursor: wait; }
 .login-status { margin-top: 18px; padding: 12px 14px; border-radius: 10px; background: #edf5ff; color: #173c6b !important; }
 .login-status.login-error { border: 1px solid #f5c2c5; background: #fff1f2; color: #a61b29 !important; }
+.login-status.login-success { border: 1px solid #b9e3c5; background: #effaf2; color: #196b35 !important; }
+.password-requirements { margin: 2px 0 7px; color: #697386; font-size: 12px; }
 button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, tr:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }

@@ -10,12 +10,15 @@ export default function LoginClient() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState("");
+  const [statusType, setStatusType] = useState<"error" | "success">("error");
   const [loading, setLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setStatus("");
+    setStatusType("error");
     const supabase = createSupabaseBrowserClient();
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim().toLowerCase(),
@@ -39,6 +42,24 @@ export default function LoginClient() {
     router.refresh();
   }
 
+  async function requestPasswordReset() {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setStatusType("error");
+      setStatus("Masukkan alamat email terlebih dahulu.");
+      return;
+    }
+    setResetting(true);
+    setStatus("");
+    const supabase = createSupabaseBrowserClient();
+    await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+      redirectTo: `${window.location.origin}/auth/callback?next=/update-password`,
+    });
+    setResetting(false);
+    setStatusType("success");
+    setStatus("Jika email terdaftar, tautan untuk membuat password baru telah dikirim. Silakan periksa kotak masuk dan folder spam.");
+  }
+
   return (
     <main className="login-shell">
       <section className="login-card">
@@ -57,8 +78,11 @@ export default function LoginClient() {
             </button>
           </div>
           <button type="submit" className="login-submit" disabled={loading}>{loading ? "Memeriksa…" : "Masuk ke Dashboard"}</button>
+          <button type="button" className="forgot-password" onClick={requestPasswordReset} disabled={loading || resetting}>
+            {resetting ? "Mengirim tautan…" : "Lupa password?"}
+          </button>
         </form>
-        {status ? <p className="login-status login-error" role="alert">{status}</p> : null}
+        {status ? <p className={`login-status ${statusType === "error" ? "login-error" : "login-success"}`} role={statusType === "error" ? "alert" : "status"}>{status}</p> : null}
       </section>
     </main>
   );
