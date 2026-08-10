@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "../../authz";
 import { seedSalesFromExcel } from "../../excel-data";
+import { createSupabaseServerClient, isSupabaseConfigured } from "../../supabase/server";
+import { getD1Database } from "../../d1";
 
 type InputRecord = {
   source_key?: string;
@@ -60,12 +62,11 @@ const seed: InputRecord[] = [
 ];
 
 const getDb = async () => {
-  const { env } = await import("cloudflare:workers");
-  if (!env.DB) throw new Error("Database binding is unavailable");
-  return env.DB;
+  return getD1Database();
 };
 
 async function ensureDatabase() {
+  if (isSupabaseConfigured()) return;
   const db = await getDb();
   await db.prepare(schemaSql).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS sales_customer_idx ON sales(customer)").run();
@@ -100,8 +101,31 @@ const normalized = (record: InputRecord, index = 0) => {
 };
 
 async function upsertRecords(records: InputRecord[]) {
-  const db = await getDb();
   const rows = records.map(normalized);
+  if (isSupabaseConfigured()) {
+    const supabase = await createSupabaseServerClient();
+    const keys = rows.map((row) => row.source_key);
+    const { data: existing, error: readError } = await supabase.from("sales")
+      .select("source_key,amount_paid,payment_date").in("source_key", keys);
+    if (readError) throw readError;
+    const existingByKey = new Map((existing ?? []).map((row) => [row.source_key, row]));
+    const merged = rows.map((row) => {
+      const current = existingByKey.get(row.source_key);
+      const amountPaid = Math.max(Number(current?.amount_paid ?? 0), row.amount_paid);
+      return {
+        ...row,
+        amount_paid: amountPaid,
+        payment_date: Number(current?.amount_paid ?? 0) > row.amount_paid ? current?.payment_date ?? "" : row.payment_date,
+        payment_status: row.invoice_amount > 0 && amountPaid >= row.invoice_amount ? "CLOSED" : row.payment_status,
+      };
+    });
+    for (let offset = 0; offset < merged.length; offset += 500) {
+      const { error } = await supabase.from("sales").upsert(merged.slice(offset, offset + 500), { onConflict: "source_key" });
+      if (error) throw error;
+    }
+    return;
+  }
+  const db = await getDb();
   for (let offset = 0; offset < rows.length; offset += 40) {
     const statements = rows.slice(offset, offset + 40).map((row) => db.prepare(
       `INSERT INTO sales (
@@ -131,7 +155,14 @@ export async function GET(request: NextRequest) {
     const access = await requireRole(request, ["ADMIN", "EDITOR", "VIEWER"]);
     if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
-    await seedSalesFromExcel();
+    if (!isSupabaseConfigured()) await seedSalesFromExcel();
+    if (isSupabaseConfigured()) {
+      const supabase = await createSupabaseServerClient();
+      const { data, error } = await supabase.from("sales").select("*")
+        .order("updated_at", { ascending: false }).order("id", { ascending: false });
+      if (error) throw error;
+      return NextResponse.json({ data });
+    }
     const result = await (await getDb()).prepare("SELECT * FROM sales ORDER BY updated_at DESC, id DESC").all();
     return NextResponse.json({ data: result.results });
   } catch (error) {
@@ -161,6 +192,17 @@ export async function PATCH(request: NextRequest) {
     await ensureDatabase();
     const body = await request.json() as { id?: number; amount_paid?: number; payment_status?: string };
     if (!body.id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    if (isSupabaseConfigured()) {
+      const supabase = await createSupabaseServerClient();
+      const { error } = await supabase.from("sales").update({
+        amount_paid: Number(body.amount_paid || 0),
+        payment_status: String(body.payment_status || "OPEN"),
+        payment_date: body.payment_status === "CLOSED" ? new Date().toISOString().slice(0, 10) : "",
+        updated_at: new Date().toISOString(),
+      }).eq("id", Number(body.id));
+      if (error) throw error;
+      return NextResponse.json({ ok: true });
+    }
     await (await getDb()).prepare(
       "UPDATE sales SET amount_paid = ?, payment_status = ?, payment_date = ?, updated_at = ? WHERE id = ?"
     ).bind(

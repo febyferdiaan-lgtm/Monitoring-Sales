@@ -1,23 +1,9 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "Monitoring Sales MDA",
-  description: "Aplikasi internal monitoring penjualan PT MDA Amanah Sejahtera.",
-  other: {
-    "codex-preview": "development",
-  },
+  title: "PT. MDA Amanah Sejahtera Monitoring RAB",
+  description: "Aplikasi internal Monitoring RAB PT. MDA Amanah Sejahtera.",
   icons: {
     icon: "/mda-logo.svg",
     shortcut: "/mda-logo.svg",
@@ -31,9 +17,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className="antialiased">
         {children}
       </body>
     </html>

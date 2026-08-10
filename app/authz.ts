@@ -6,15 +6,17 @@ export type AppIdentity = {
   role: AppRole;
 };
 
+import { createSupabaseServerClient, isSupabaseConfigured } from "./supabase/server";
+import { getD1Database } from "./d1";
+
 const ownerEmail = "febyferdiaan@gmail.com";
 
 async function getD1() {
-  const { env } = await import("cloudflare:workers");
-  if (!env.DB) throw new Error("Database binding is unavailable");
-  return env.DB;
+  return getD1Database();
 }
 
 export async function ensureAppUsers() {
+  if (isSupabaseConfigured()) return;
   const db = await getD1();
   await db.prepare(`CREATE TABLE IF NOT EXISTS app_users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,6 +47,23 @@ function decodeName(headers: Headers) {
 }
 
 export async function getAppIdentity(request: Request): Promise<AppIdentity | null> {
+  if (isSupabaseConfigured()) {
+    const supabase = await createSupabaseServerClient();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user?.email) return null;
+    const { data: stored, error } = await supabase
+      .from("app_users")
+      .select("email,name,role,is_active")
+      .eq("email", user.email.toLowerCase())
+      .eq("is_active", true)
+      .maybeSingle();
+    if (error || !stored) return null;
+    return {
+      email: stored.email,
+      name: stored.name || user.user_metadata?.full_name || stored.email,
+      role: stored.role === "ADMIN" || stored.role === "EDITOR" ? stored.role : "VIEWER",
+    };
+  }
   const email = (
     request.headers.get("oai-authenticated-user-email")
     || (process.env.NODE_ENV === "development" ? ownerEmail : "")

@@ -1574,7 +1574,7 @@ export default function DashboardClient() {
                 <img src="/mda-logo.svg" alt="" />
               </div>
             </div>
-            <p>PT MDA Amanah Sejahtera</p>
+            <p>PT. MDA Amanah Sejahtera Monitoring RAB</p>
             <h2>Menyinkronkan data</h2>
             <span className="site-loading-message">Mohon tunggu, dashboard sedang diperbarui.</span>
             <span className="site-loading-progress" aria-hidden="true"><i /></span>
@@ -1598,7 +1598,7 @@ export default function DashboardClient() {
 
       <section className="workspace">
         <header className="topbar">
-          <div className="title-wrap"><button className="menu-button" aria-label="Buka menu" onClick={() => setSidebarOpen(true)}><Menu /></button><div><p className="eyebrow">PT MDA AMANAH SEJAHTERA</p><h1>{{ Dashboard: "Summary", Pipeline: "Proses Penjualan", Tagihan: "Kontrol Tagihan", Customer: "Data Customer", Sparepart: "Master Sparepart", Dokumen: "Quotation & Invoice", Excel: "Data Excel Lengkap", Akses: "Akses Pengguna", Laporan: "Laporan Penjualan" }[activeNav]}</h1><p className="page-description">{{ Dashboard: "Lihat penjualan ber-PO, umur tagihan, dan piutang customer.", Pipeline: "Pantau perjalanan setiap pekerjaan dari RFQ hingga lunas.", Tagihan: "Fokus pada invoice yang belum dibayar dan jatuh tempo.", Customer: "Bandingkan jumlah PO, invoice, pembayaran, dan outstanding.", Sparepart: "Kelola part number, satuan, brand, dan harga jual.", Dokumen: "Buat penawaran dan invoice itemized yang siap dicetak.", Excel: "Telusuri seluruh baris dan kolom sumber Monitoring Sales.xlsx.", Akses: "Atur peran Admin, Sales/Editor, dan Viewer.", Laporan: "Unduh dan periksa rekap penjualan sesuai filter." }[activeNav]}</p></div></div>
+          <div className="title-wrap"><button className="menu-button" aria-label="Buka menu" onClick={() => setSidebarOpen(true)}><Menu /></button><div><p className="eyebrow">PT. MDA AMANAH SEJAHTERA MONITORING RAB</p><h1>{{ Dashboard: "Summary", Pipeline: "Proses Penjualan", Tagihan: "Kontrol Tagihan", Customer: "Data Customer", Sparepart: "Master Sparepart", Dokumen: "Quotation & Invoice", Excel: "Data Excel Lengkap", Akses: "Akses Pengguna", Laporan: "Laporan Penjualan" }[activeNav]}</h1><p className="page-description">{{ Dashboard: "Lihat penjualan ber-PO, umur tagihan, dan piutang customer.", Pipeline: "Pantau perjalanan setiap pekerjaan dari RFQ hingga lunas.", Tagihan: "Fokus pada invoice yang belum dibayar dan jatuh tempo.", Customer: "Bandingkan jumlah PO, invoice, pembayaran, dan outstanding.", Sparepart: "Kelola part number, satuan, brand, dan harga jual.", Dokumen: "Buat penawaran dan invoice itemized yang siap dicetak.", Excel: "Telusuri seluruh baris dan kolom sumber Monitoring Sales.xlsx.", Akses: "Atur peran Admin, Sales/Editor, dan Viewer.", Laporan: "Unduh dan periksa rekap penjualan sesuai filter." }[activeNav]}</p></div></div>
           <div className="top-actions">
             {activeNav !== "Akses" && activeNav !== "Excel" && (
               <label className="select-control year-control">
