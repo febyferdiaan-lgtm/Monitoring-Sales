@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "../../authz";
+import { createSupabaseServerClient, isSupabaseConfigured } from "../../supabase/server";
+import { getD1Database } from "../../d1";
 
 type DocumentItem = {
   spare_part_id?: number | null;
@@ -59,12 +61,11 @@ const itemSchema = `CREATE TABLE IF NOT EXISTS sales_document_items (
 )`;
 
 const getDb = async () => {
-  const { env } = await import("cloudflare:workers");
-  if (!env.DB) throw new Error("Database binding is unavailable");
-  return env.DB;
+  return getD1Database();
 };
 
 async function ensureDatabase() {
+  if (isSupabaseConfigured()) return;
   const db = await getDb();
   await db.batch([
     db.prepare(documentSchema),
@@ -79,10 +80,19 @@ async function ensureDatabase() {
 const romanMonths = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
 
 async function nextDocumentNumber(type: "QUOTATION" | "INVOICE", date: string) {
-  const db = await getDb();
   const parsed = new Date(`${date}T00:00:00`);
   const year = Number.isNaN(parsed.valueOf()) ? new Date().getFullYear() : parsed.getFullYear();
   const month = Number.isNaN(parsed.valueOf()) ? new Date().getMonth() : parsed.getMonth();
+  if (isSupabaseConfigured()) {
+    const supabase = await createSupabaseServerClient();
+    const { count, error } = await supabase.from("sales_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("document_type", type).like("document_date", `${year}%`);
+    if (error) throw error;
+    const sequence = String(Number(count ?? 0) + 1).padStart(3, "0");
+    return `${sequence}/MDA-${type === "INVOICE" ? "INV" : "QUOT"}/${romanMonths[month]}/${year}`;
+  }
+  const db = await getDb();
   const result = await db.prepare(
     "SELECT COUNT(*) AS total FROM sales_documents WHERE document_type = ? AND substr(document_date, 1, 4) = ?"
   ).bind(type, String(year)).first<{ total: number }>();
@@ -95,6 +105,21 @@ export async function GET(request: NextRequest) {
     const access = await requireRole(request, ["ADMIN", "EDITOR", "VIEWER"]);
     if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
+    if (isSupabaseConfigured()) {
+      const supabase = await createSupabaseServerClient();
+      const [{ data: documents, error: documentError }, { data: items, error: itemError }] = await Promise.all([
+        supabase.from("sales_documents").select("*").order("created_at", { ascending: false }).order("id", { ascending: false }),
+        supabase.from("sales_document_items").select("*").order("id"),
+      ]);
+      if (documentError) throw documentError;
+      if (itemError) throw itemError;
+      const grouped = new Map<number, Record<string, unknown>[]>();
+      (items ?? []).forEach((item) => {
+        const id = Number(item.document_id);
+        grouped.set(id, [...(grouped.get(id) ?? []), item]);
+      });
+      return NextResponse.json({ data: (documents ?? []).map((document) => ({ ...document, items: grouped.get(Number(document.id)) ?? [] })) });
+    }
     const db = await getDb();
     const documents = await db.prepare("SELECT * FROM sales_documents ORDER BY created_at DESC, id DESC").all<Record<string, unknown>>();
     const items = await db.prepare("SELECT * FROM sales_document_items ORDER BY id ASC").all<Record<string, unknown>>();
@@ -129,6 +154,38 @@ export async function POST(request: NextRequest) {
     const taxAmount = subtotal * taxPercent / 100;
     const grandTotal = subtotal + taxAmount;
     const now = new Date().toISOString();
+    if (isSupabaseConfigured()) {
+      const supabase = await createSupabaseServerClient();
+      const { data: inserted, error: documentError } = await supabase.from("sales_documents").insert({
+        document_type: type, document_number: number, customer,
+        customer_address: String(body.customer_address || ""), customer_pic: String(body.customer_pic || ""),
+        project: String(body.project || ""), reference_no: String(body.reference_no || ""),
+        document_date: documentDate, due_date: String(body.due_date || ""), subtotal,
+        tax_percent: taxPercent, tax_amount: taxAmount, grand_total: grandTotal,
+        notes: String(body.notes || ""), status: "DRAFT", created_at: now, updated_at: now,
+      }).select("id").single();
+      if (documentError || !inserted) throw documentError ?? new Error("Dokumen gagal dibuat.");
+      const documentId = Number(inserted.id);
+      const { error: itemError } = await supabase.from("sales_document_items").insert(items.map((item) => ({
+        document_id: documentId, spare_part_id: item.spare_part_id ? Number(item.spare_part_id) : null,
+        part_number: String(item.part_number || ""), description: String(item.description || ""),
+        quantity: Number(item.quantity || 0), unit: String(item.unit || "Pcs"), unit_price: Number(item.unit_price || 0),
+        line_total: Number(item.quantity || 0) * Number(item.unit_price || 0),
+      })));
+      if (itemError) throw itemError;
+      const sourceKey = `document-${type.toLowerCase()}-${documentId}`;
+      const { error: saleError } = await supabase.from("sales").upsert({
+        source_key: sourceKey, customer, location: "", transaction_type: "Trading Part",
+        project: String(body.project || items[0]?.description || ""), rfq_no: "",
+        quotation_no: type === "QUOTATION" ? number : String(body.reference_no || ""),
+        po_no: "", delivery_no: "", invoice_no: type === "INVOICE" ? number : "",
+        invoice_amount: grandTotal, amount_paid: 0, due_date: type === "INVOICE" ? String(body.due_date || "") : "",
+        payment_date: "", payment_status: "OPEN", transaction_status: "Open",
+        notes: `${type === "INVOICE" ? "Invoice" : "Quotation"} dibuat dari modul dokumen.`, created_at: now, updated_at: now,
+      }, { onConflict: "source_key" });
+      if (saleError) throw saleError;
+      return NextResponse.json({ ok: true, id: documentId, document_number: number });
+    }
     const db = await getDb();
 
     const inserted = await db.prepare(

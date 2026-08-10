@@ -1,12 +1,13 @@
 import { excelSeed } from "./data/excel-seed";
+import { isSupabaseConfigured } from "./supabase/server";
+import { getD1Database } from "./d1";
 
 async function getD1() {
-  const { env } = await import("cloudflare:workers");
-  if (!env.DB) throw new Error("Database binding is unavailable");
-  return env.DB;
+  return getD1Database();
 }
 
 export async function ensureExcelData() {
+  if (isSupabaseConfigured()) return;
   const db = await getD1();
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS data_imports (
