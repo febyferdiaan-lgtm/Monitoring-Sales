@@ -71,6 +71,8 @@ async function ensureDatabase() {
     db.prepare(itemSchema),
     db.prepare("CREATE INDEX IF NOT EXISTS sales_documents_customer_idx ON sales_documents(customer)"),
     db.prepare("CREATE INDEX IF NOT EXISTS sales_document_items_document_idx ON sales_document_items(document_id)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS sales_documents_type_id_idx ON sales_documents(document_type, id)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS sales_document_items_spare_part_idx ON sales_document_items(spare_part_id, document_id)"),
   ]);
 }
 

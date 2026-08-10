@@ -70,9 +70,12 @@ type SparePart = {
   unit: string;
   selling_price: number;
   notes: string;
+  sold_quantity: number;
+  top_customer: string;
+  top_customer_quantity: number;
 };
 
-type DraftPart = Omit<SparePart, "id">;
+type DraftPart = Omit<SparePart, "id" | "sold_quantity" | "top_customer" | "top_customer_quantity">;
 
 type DocumentLine = {
   key: string;
@@ -451,12 +454,10 @@ export default function DashboardClient() {
 
   const loadBusinessData = async () => {
     try {
-      const [partsResponse, documentsResponse] = await Promise.all([
-        fetch("/api/spareparts"),
-        fetch("/api/documents"),
-      ]);
-      if (partsResponse.ok) setParts((await partsResponse.json()).data ?? []);
+      const documentsResponse = await fetch("/api/documents");
       if (documentsResponse.ok) setDocuments((await documentsResponse.json()).data ?? []);
+      const partsResponse = await fetch("/api/spareparts");
+      if (partsResponse.ok) setParts((await partsResponse.json()).data ?? []);
     } catch {
       setNotice("Master sparepart dan dokumen belum berhasil dimuat.");
     }
@@ -1398,13 +1399,13 @@ export default function DashboardClient() {
     );
     if (activeNav === "Sparepart") {
       const visibleParts = parts.filter((part) =>
-        `${part.part_number} ${part.name} ${part.category} ${part.brand}`.toLowerCase().includes(search.toLowerCase())
+        `${part.part_number} ${part.name} ${part.category} ${part.brand} ${part.top_customer}`.toLowerCase().includes(search.toLowerCase())
       );
       return (
         <section className="module-stack">
           <div className="module-banner parts-banner">
             <span className="banner-icon"><PackageSearch /></span>
-            <div><p className="eyebrow">MASTER SPAREPART</p><h2>{parts.length} sparepart terdaftar</h2><p>Pilih part number saat membuat penawaran agar harga jual dan satuan terisi otomatis.</p></div>
+            <div><p className="eyebrow">SUMMARY SPAREPART</p><h2>{parts.length} sparepart terpantau</h2><p>Ringkasan jumlah terjual dan customer pembeli terbanyak berdasarkan invoice.</p></div>
             {canEdit && <div className="banner-actions">
               <a className="secondary-button" href="/template-import-sparepart.xlsx" download><Download size={17} /> Template Excel</a>
               <input ref={sparePartFileRef} className="visually-hidden" type="file" accept=".xlsx,.xls" onChange={importSpareParts} />
@@ -1413,18 +1414,18 @@ export default function DashboardClient() {
             </div>}
           </div>
           <article className="panel full-table">
-            <div className="section-head"><div><p className="eyebrow">KATALOG HARGA JUAL</p><h2>Part Number & Harga</h2></div><span className="period-chip">{visibleParts.length} item</span></div>
+            <div className="section-head"><div><p className="eyebrow">SUMMARY SPAREPART</p><h2>Penjualan per Part Number</h2></div><span className="period-chip">{visibleParts.length} item</span></div>
             <div className="table-scroll">
               <table className="data-table parts-table">
-                <thead><tr><th>Part Number</th><th>Nama Sparepart</th><th>Kategori / Brand</th><th>Satuan</th><th className="number">Harga Jual</th><th>Aksi</th></tr></thead>
+                <thead><tr><th>Part Number</th><th>Nama Spare Part</th><th className="number">Harga Jual</th><th className="number">Jumlah Terjual</th><th>Customer Pembeli Terbanyak</th><th>Aksi</th></tr></thead>
                 <tbody>
                   {visibleParts.map((part) => (
                     <tr key={part.id}>
                       <td><span className="part-number">{part.part_number}</span></td>
-                      <td><b>{part.name}</b><small>{part.notes || "Tidak ada catatan"}</small></td>
-                      <td><b>{part.category || "Umum"}</b><small>{part.brand || "Tanpa brand"}</small></td>
-                      <td>{part.unit}</td>
+                      <td><b>{part.name}</b><small>{[part.category, part.brand].filter(Boolean).join(" · ") || "Kategori belum diisi"}</small></td>
                       <td className="number"><strong>{money.format(part.selling_price)}</strong></td>
+                      <td className="number"><strong>{Number(part.sold_quantity || 0).toLocaleString("id-ID")} {part.unit}</strong></td>
+                      <td>{part.top_customer ? <><b>{part.top_customer}</b><small>{Number(part.top_customer_quantity || 0).toLocaleString("id-ID")} {part.unit} terbeli</small></> : <span className="readonly-label">Belum ada penjualan</span>}</td>
                       <td>{canEdit ? <div className="row-actions"><button aria-label={`Edit ${part.part_number}`} onClick={() => openPartForm(part)}><Pencil size={15} /></button><button className="danger" aria-label={`Nonaktifkan ${part.part_number}`} onClick={() => archivePart(part)}><Trash2 size={15} /></button></div> : <span className="readonly-label"><Eye size={13} /> Lihat saja</span>}</td>
                     </tr>
                   ))}
