@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "../../authz";
+import { planExcelPaymentSync, type ExcelPaymentRow } from "../../excel-payment-sync";
 
 const schemaSql = `CREATE TABLE IF NOT EXISTS payment_confirmations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,6 +61,23 @@ export async function GET(request: NextRequest) {
     if (access.error || !access.identity) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensurePaymentsDatabase();
     const db = await getD1();
+    const approvedSales = await db.prepare(
+      `SELECT DISTINCT sales.invoice_no, sales.amount_paid, sales.payment_date
+       FROM sales INNER JOIN payment_confirmations
+         ON payment_confirmations.invoice_no = sales.invoice_no
+       WHERE payment_confirmations.status = 'APPROVED' AND sales.invoice_no <> '' AND sales.amount_paid > 0`,
+    ).all<{ invoice_no: string; amount_paid: number; payment_date: string }>();
+    for (const sale of approvedSales.results) {
+      const excelRows = await db.prepare(
+        "SELECT id, amount, raw_json FROM excel_rows WHERE invoice_no = ? ORDER BY row_number",
+      ).bind(sale.invoice_no).all<ExcelPaymentRow>();
+      const updates = planExcelPaymentSync(excelRows.results, sale.amount_paid, sale.payment_date);
+      for (let offset = 0; offset < updates.length; offset += 35) {
+        await db.batch(updates.slice(offset, offset + 35).map((update) => db.prepare(
+          "UPDATE excel_rows SET payment_status = ?, raw_json = ? WHERE id = ?",
+        ).bind(update.paymentStatus, update.rawJson, update.id)));
+      }
+    }
     const result = access.identity.role === "ADMIN"
       ? await db.prepare("SELECT * FROM payment_confirmations ORDER BY requested_at DESC LIMIT 200").all<PaymentConfirmation>()
       : await db.prepare("SELECT * FROM payment_confirmations WHERE requested_by_email = ? ORDER BY requested_at DESC LIMIT 100").bind(access.identity.email).all<PaymentConfirmation>();
@@ -138,13 +156,27 @@ export async function PATCH(request: NextRequest) {
       ).bind(nextStatus, access.identity.email, access.identity.name, now, String(body.review_notes || "").trim().slice(0, 500), id),
     ];
     if (body.action === "approve") {
+      const sale = await db.prepare(
+        "SELECT invoice_no, invoice_amount, amount_paid FROM sales WHERE id = ?",
+      ).bind(confirmation.sale_id).first<{ invoice_no: string; invoice_amount: number; amount_paid: number }>();
+      if (!sale?.invoice_no) return NextResponse.json({ error: "Invoice pembayaran tidak ditemukan." }, { status: 404 });
+      const targetPaid = Math.min(Number(sale.invoice_amount), Number(sale.amount_paid) + Number(confirmation.amount));
+      const targetStatus = Number(sale.invoice_amount) > 0 && targetPaid >= Number(sale.invoice_amount) - 0.01 ? "CLOSED" : "OPEN";
       statements.push(db.prepare(
         `UPDATE sales SET
-          amount_paid = MIN(invoice_amount, amount_paid + ?),
-          payment_status = CASE WHEN amount_paid + ? >= invoice_amount THEN 'CLOSED' ELSE 'OPEN' END,
+          amount_paid = ?,
+          payment_status = ?,
           payment_date = ?, updated_at = ?
          WHERE id = ?`,
-      ).bind(confirmation.amount, confirmation.amount, confirmation.payment_date, now, confirmation.sale_id));
+      ).bind(targetPaid, targetStatus, confirmation.payment_date, now, confirmation.sale_id));
+
+      const excelRows = await db.prepare(
+        "SELECT id, amount, raw_json FROM excel_rows WHERE invoice_no = ? ORDER BY row_number",
+      ).bind(sale.invoice_no).all<ExcelPaymentRow>();
+      const excelUpdates = planExcelPaymentSync(excelRows.results, targetPaid, confirmation.payment_date);
+      statements.push(...excelUpdates.map((update) => db.prepare(
+        "UPDATE excel_rows SET payment_status = ?, raw_json = ? WHERE id = ?",
+      ).bind(update.paymentStatus, update.rawJson, update.id)));
     }
     await db.batch(statements);
     return NextResponse.json({ ok: true, status: nextStatus });

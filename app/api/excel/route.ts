@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "../../authz";
 import { ensureExcelData } from "../../excel-data";
+import { planExcelPaymentSync, type ExcelPaymentRow } from "../../excel-payment-sync";
 
 async function getD1() {
   const { env } = await import("cloudflare:workers");
@@ -194,9 +195,29 @@ export async function POST(request: NextRequest) {
         payment_status = CASE WHEN MIN(invoice_amount, MAX(amount_paid, COALESCE((
           SELECT SUM(amount) FROM payment_confirmations
           WHERE payment_confirmations.invoice_no = sales.invoice_no AND payment_confirmations.status = 'APPROVED'
-        ), 0))) >= invoice_amount AND invoice_amount > 0 THEN 'CLOSED' ELSE payment_status END
+        ), 0))) >= invoice_amount AND invoice_amount > 0 THEN 'CLOSED' ELSE payment_status END,
+        payment_date = COALESCE((
+          SELECT payment_date FROM payment_confirmations
+          WHERE payment_confirmations.invoice_no = sales.invoice_no AND payment_confirmations.status = 'APPROVED'
+          ORDER BY reviewed_at DESC LIMIT 1
+        ), payment_date)
        WHERE invoice_no <> ''`,
     ).run();
+
+    const paidSales = await db.prepare(
+      "SELECT invoice_no, amount_paid, payment_date FROM sales WHERE invoice_no <> '' AND amount_paid > 0",
+    ).all<{ invoice_no: string; amount_paid: number; payment_date: string }>();
+    for (const sale of paidSales.results) {
+      const excelRows = await db.prepare(
+        "SELECT id, amount, raw_json FROM excel_rows WHERE invoice_no = ? ORDER BY row_number",
+      ).bind(sale.invoice_no).all<ExcelPaymentRow>();
+      const updates = planExcelPaymentSync(excelRows.results, sale.amount_paid, sale.payment_date);
+      for (let offset = 0; offset < updates.length; offset += 35) {
+        await db.batch(updates.slice(offset, offset + 35).map((update) => db.prepare(
+          "UPDATE excel_rows SET payment_status = ?, raw_json = ? WHERE id = ?",
+        ).bind(update.paymentStatus, update.rawJson, update.id)));
+      }
+    }
     await db.prepare("PRAGMA optimize").run();
     return NextResponse.json({ ok: true, imported_rows: rows.length, transactions: records.length });
   } catch (error) {
