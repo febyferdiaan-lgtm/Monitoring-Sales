@@ -1398,14 +1398,15 @@ export default function DashboardClient() {
       </section>
     );
     if (activeNav === "Sparepart") {
-      const visibleParts = parts.filter((part) =>
+      const summaryParts = parts.filter((part) => Number(part.selling_price) > 0 && Number(part.sold_quantity) > 0);
+      const visibleParts = summaryParts.filter((part) =>
         `${part.part_number} ${part.name} ${part.category} ${part.brand} ${part.top_customer}`.toLowerCase().includes(search.toLowerCase())
       );
       return (
         <section className="module-stack">
           <div className="module-banner parts-banner">
             <span className="banner-icon"><PackageSearch /></span>
-            <div><p className="eyebrow">SUMMARY SPAREPART</p><h2>{parts.length} sparepart terpantau</h2><p>Ringkasan jumlah terjual dan customer pembeli terbanyak berdasarkan invoice.</p></div>
+            <div><p className="eyebrow">SUMMARY SPAREPART</p><h2>{summaryParts.length} sparepart terjual</h2><p>Hanya menampilkan part dengan harga jual dan riwayat penjualan berdasarkan invoice.</p></div>
             {canEdit && <div className="banner-actions">
               <a className="secondary-button" href="/template-import-sparepart.xlsx" download><Download size={17} /> Template Excel</a>
               <input ref={sparePartFileRef} className="visually-hidden" type="file" accept=".xlsx,.xls" onChange={importSpareParts} />
