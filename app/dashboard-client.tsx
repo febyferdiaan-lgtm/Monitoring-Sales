@@ -132,6 +132,24 @@ type ManagedUser = AppIdentity & {
   updated_at: string;
 };
 
+type PaymentConfirmation = {
+  id: number;
+  sale_id: number;
+  invoice_no: string;
+  customer: string;
+  amount: number;
+  payment_date: string;
+  reference_no: string;
+  notes: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  requested_by_email: string;
+  requested_by_name: string;
+  requested_at: string;
+  reviewed_by_name: string;
+  reviewed_at: string;
+  review_notes: string;
+};
+
 type ExcelRecord = {
   id: number;
   row_number: number;
@@ -371,6 +389,11 @@ export default function DashboardClient() {
   const [selectedParts, setSelectedParts] = useState<ExcelRecord[]>([]);
   const [selectedPartsLoading, setSelectedPartsLoading] = useState(false);
   const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
+  const [paymentConfirmations, setPaymentConfirmations] = useState<PaymentConfirmation[]>([]);
+  const [paymentTarget, setPaymentTarget] = useState<Sale | null>(null);
+  const [paymentDraft, setPaymentDraft] = useState({ amount: 0, payment_date: "", reference_no: "", notes: "" });
+  const [verificationTarget, setVerificationTarget] = useState<PaymentConfirmation | null>(null);
+  const [reviewNotes, setReviewNotes] = useState("");
   const [userDraft, setUserDraft] = useState<{ name: string; email: string; role: AppRole }>({ name: "", email: "", role: "VIEWER" });
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -422,6 +445,11 @@ export default function DashboardClient() {
     if (response.ok) setUsers((await response.json()).data ?? []);
   };
 
+  const loadPaymentConfirmations = async () => {
+    const response = await fetch("/api/payments");
+    if (response.ok) setPaymentConfirmations((await response.json()).data ?? []);
+  };
+
   const loadExcelData = async (page = excelPage, query = search) => {
     const response = await fetch(`/api/excel?page=${page}&q=${encodeURIComponent(query)}`);
     if (!response.ok) return;
@@ -436,7 +464,7 @@ export default function DashboardClient() {
     const timer = window.setTimeout(() => {
       void (async () => {
         const session = await loadSession();
-        await Promise.all([loadSales(), loadBusinessData(), loadExcelData(1, "")]);
+        await Promise.all([loadSales(), loadBusinessData(), loadExcelData(1, ""), loadPaymentConfirmations()]);
         if (session?.role === "ADMIN") await loadUsers();
       })();
     }, 0);
@@ -590,6 +618,15 @@ export default function DashboardClient() {
     overdue: total.overdue + customer.overdueInvoices,
   }), { customers: 0, invoices: 0, outstanding: 0, overdue: 0 }), [outstandingCustomers]);
 
+  const pendingPayments = useMemo(
+    () => paymentConfirmations.filter((confirmation) => confirmation.status === "PENDING"),
+    [paymentConfirmations],
+  );
+  const pendingPaymentBySale = useMemo(
+    () => new Map(pendingPayments.map((confirmation) => [confirmation.sale_id, confirmation])),
+    [pendingPayments],
+  );
+
   const openAdd = () => {
     setDraft(emptyDraft);
     setShowAdd(true);
@@ -662,20 +699,56 @@ export default function DashboardClient() {
     }
   };
 
-  const markPaid = async (sale: Sale) => {
+  const openPaymentConfirmation = (sale: Sale) => {
+    setSelected(null);
+    setPaymentTarget(sale);
+    setPaymentDraft({
+      amount: Math.max(0, Number(sale.invoice_amount) - Number(sale.amount_paid)),
+      payment_date: new Date().toISOString().slice(0, 10),
+      reference_no: "",
+      notes: "",
+    });
+  };
+
+  const submitPaymentConfirmation = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!paymentTarget) return;
     setSaving(true);
     try {
-      const response = await fetch("/api/sales", {
+      const response = await fetch("/api/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sale_id: paymentTarget.id, ...paymentDraft }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Konfirmasi pembayaran gagal.");
+      setPaymentTarget(null);
+      setNotice("Konfirmasi pembayaran dikirim dan menunggu verifikasi Admin.");
+      await loadPaymentConfirmations();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Konfirmasi pembayaran belum berhasil dikirim.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const verifyPayment = async (action: "approve" | "reject") => {
+    if (!verificationTarget) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/payments", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: sale.id, amount_paid: sale.invoice_amount, payment_status: "CLOSED" }),
+        body: JSON.stringify({ id: verificationTarget.id, action, review_notes: reviewNotes }),
       });
-      if (!response.ok) throw new Error();
-      setSelected(null);
-      setNotice("Pembayaran telah dikonfirmasi lunas.");
-      await loadSales();
-    } catch {
-      setNotice("Status pembayaran belum berhasil diperbarui.");
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Verifikasi pembayaran gagal.");
+      setVerificationTarget(null);
+      setReviewNotes("");
+      setNotice(action === "approve" ? "Pembayaran disetujui. Seluruh Summary telah diperbarui." : "Konfirmasi pembayaran ditolak.");
+      await Promise.all([loadSales(), loadPaymentConfirmations()]);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Verifikasi pembayaran belum berhasil.");
     } finally {
       setSaving(false);
     }
@@ -906,6 +979,29 @@ export default function DashboardClient() {
         </div>
       </div>
 
+      {isAdmin && pendingPayments.length > 0 && (
+        <article className="panel payment-verification-panel">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">VERIFIKASI PEMBAYARAN</p>
+              <h2>{pendingPayments.length} konfirmasi menunggu pemeriksaan</h2>
+              <p className="section-note">Periksa nominal, tanggal, dan referensi sebelum pembayaran dimasukkan ke Summary.</p>
+            </div>
+            <span className="verification-count"><ShieldCheck size={16} /> {pendingPayments.length} Pending</span>
+          </div>
+          <div className="verification-list">
+            {pendingPayments.map((confirmation) => (
+              <div className="verification-item" key={confirmation.id}>
+                <span className="verification-icon"><Clock3 size={18} /></span>
+                <div><b>{confirmation.customer}</b><small>{confirmation.invoice_no} · diajukan {confirmation.requested_by_name || confirmation.requested_by_email}</small></div>
+                <div className="verification-amount"><strong>{money.format(confirmation.amount)}</strong><small>{new Date(confirmation.payment_date).toLocaleDateString("id-ID")}{confirmation.reference_no ? ` · ${confirmation.reference_no}` : ""}</small></div>
+                <button className="part-detail-button" type="button" onClick={() => { setVerificationTarget(confirmation); setReviewNotes(""); }}><ShieldCheck size={14} /> Verifikasi</button>
+              </div>
+            ))}
+          </div>
+        </article>
+      )}
+
       <article className="panel full-table receivable-panel">
         <div className="section-head">
           <div>
@@ -939,7 +1035,7 @@ export default function DashboardClient() {
                           <div className="receivable-invoices-head"><strong>Detail Invoice — {customer.name}</strong><span>{customer.invoices.length} invoice belum lunas</span></div>
                           <div className="table-scroll">
                             <table className="data-table invoice-detail-table">
-                              <thead><tr><th>No. Invoice</th><th>Proyek / PO</th><th className="number">Umur Tagihan</th><th className="number">Total Tagihan</th><th className="number">Terbayar</th><th className="number">Sisa</th><th>Status</th><th>Part</th></tr></thead>
+                              <thead><tr><th>No. Invoice</th><th>Proyek / PO</th><th className="number">Umur Tagihan</th><th className="number">Total Tagihan</th><th className="number">Terbayar</th><th className="number">Sisa</th><th>Status</th><th>Pembayaran</th><th>Part</th></tr></thead>
                               <tbody>
                                 {customer.invoices.sort((a, b) => agingDays(b) - agingDays(a)).map((invoice) => {
                                   const status = agingStatus(invoice);
@@ -951,6 +1047,10 @@ export default function DashboardClient() {
                                     <td className="number paid-cell">{money.format(invoice.amount_paid)}</td>
                                     <td className="number outstanding-cell">{money.format(Math.max(0, invoice.invoice_amount - invoice.amount_paid))}</td>
                                     <td><span className={`status ${status.toLowerCase().replaceAll(" ", "-")}`}>{status}</span></td>
+                                    <td>{pendingPaymentBySale.has(invoice.id)
+                                      ? <span className="payment-pending-badge"><Clock3 size={12} /> Menunggu Verifikasi</span>
+                                      : canEdit && <button className="payment-confirm-button" type="button" onClick={(event) => { event.stopPropagation(); openPaymentConfirmation(invoice); }}><CheckCircle2 size={13} /> Konfirmasi</button>}
+                                    </td>
                                     <td><button className="part-detail-button" type="button" onClick={(event) => { event.stopPropagation(); void openSaleDetail(invoice); }}><Eye size={13} /> Buka Detail</button></td>
                                   </tr>;
                                 })}
@@ -1498,7 +1598,44 @@ export default function DashboardClient() {
                 {!selectedPartsLoading && !selectedParts.length && <p className="part-empty">Belum ada rincian part dari sumber Excel untuk dokumen ini.</p>}
               </section>
             )}
-            <div className="form-actions">{canEdit && stageOf(selected) !== "Payment" && selected.invoice_no && <button className="primary-button" disabled={saving} onClick={() => markPaid(selected)}><CheckCircle2 size={17} /> Konfirmasi Lunas</button>}<button className="secondary-button" onClick={() => setSelected(null)}>Tutup</button></div>
+            <div className="form-actions">
+              {pendingPaymentBySale.has(selected.id)
+                ? <span className="payment-pending-badge"><Clock3 size={13} /> Pembayaran menunggu verifikasi Admin</span>
+                : canEdit && stageOf(selected) !== "Payment" && selected.invoice_no && <button className="primary-button" disabled={saving} onClick={() => openPaymentConfirmation(selected)}><CheckCircle2 size={17} /> Konfirmasi Pembayaran</button>}
+              <button className="secondary-button" onClick={() => setSelected(null)}>Tutup</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {paymentTarget && (
+        <div className="modal-backdrop" onMouseDown={() => !saving && setPaymentTarget(null)}>
+          <section className="modal payment-modal" role="dialog" aria-modal="true" aria-labelledby="payment-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head"><div><p className="eyebrow">KONFIRMASI PEMBAYARAN</p><h2 id="payment-title">Ajukan pembayaran invoice</h2><p>{paymentTarget.customer} · {paymentTarget.invoice_no}</p></div><button className="icon-button" onClick={() => setPaymentTarget(null)} aria-label="Tutup"><X /></button></div>
+            <div className="payment-invoice-summary"><span>Sisa tagihan</span><strong>{money.format(Math.max(0, paymentTarget.invoice_amount - paymentTarget.amount_paid))}</strong></div>
+            <form className="payment-form" onSubmit={submitPaymentConfirmation}>
+              <label>Nominal pembayaran<input required type="number" min="1" max={Math.max(0, paymentTarget.invoice_amount - paymentTarget.amount_paid)} step="0.01" value={paymentDraft.amount} onChange={(event) => setPaymentDraft({ ...paymentDraft, amount: Number(event.target.value) })} /></label>
+              <label>Tanggal pembayaran<input required type="date" value={paymentDraft.payment_date} onChange={(event) => setPaymentDraft({ ...paymentDraft, payment_date: event.target.value })} /></label>
+              <label className="wide">Nomor referensi / bukti transfer<input value={paymentDraft.reference_no} maxLength={100} onChange={(event) => setPaymentDraft({ ...paymentDraft, reference_no: event.target.value })} placeholder="Contoh: TRX-20260810-001" /></label>
+              <label className="wide">Catatan<textarea value={paymentDraft.notes} maxLength={500} onChange={(event) => setPaymentDraft({ ...paymentDraft, notes: event.target.value })} placeholder="Tambahkan keterangan pembayaran bila diperlukan" /></label>
+              <div className="payment-flow-note wide"><ShieldCheck size={18} /><span><b>Memerlukan verifikasi Admin</b><small>Summary baru diperbarui setelah pembayaran disetujui.</small></span></div>
+              <div className="form-actions wide"><button type="button" className="secondary-button" onClick={() => setPaymentTarget(null)}>Batal</button><button className="primary-button" disabled={saving}><Send size={16} /> {saving ? "Mengirim…" : "Kirim Konfirmasi"}</button></div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {verificationTarget && (
+        <div className="modal-backdrop" onMouseDown={() => !saving && setVerificationTarget(null)}>
+          <section className="modal verification-modal" role="dialog" aria-modal="true" aria-labelledby="verification-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head"><div><p className="eyebrow">VERIFIKASI ADMIN</p><h2 id="verification-title">Periksa konfirmasi pembayaran</h2><p>{verificationTarget.customer} · {verificationTarget.invoice_no}</p></div><button className="icon-button" onClick={() => setVerificationTarget(null)} aria-label="Tutup"><X /></button></div>
+            <dl className="verification-detail">
+              <div><dt>Nominal</dt><dd>{money.format(verificationTarget.amount)}</dd></div><div><dt>Tanggal Bayar</dt><dd>{new Date(verificationTarget.payment_date).toLocaleDateString("id-ID")}</dd></div>
+              <div><dt>Referensi</dt><dd>{verificationTarget.reference_no || "—"}</dd></div><div><dt>Diajukan Oleh</dt><dd>{verificationTarget.requested_by_name || verificationTarget.requested_by_email}</dd></div>
+              <div className="wide"><dt>Catatan Pengaju</dt><dd>{verificationTarget.notes || "Tidak ada catatan."}</dd></div>
+            </dl>
+            <label className="verification-notes">Catatan verifikasi<textarea value={reviewNotes} maxLength={500} onChange={(event) => setReviewNotes(event.target.value)} placeholder="Alasan penolakan atau catatan pemeriksaan (opsional)" /></label>
+            <div className="verification-actions"><button className="reject-button" disabled={saving} onClick={() => verifyPayment("reject")}><X size={16} /> Tolak</button><button className="approve-button" disabled={saving} onClick={() => verifyPayment("approve")}><CheckCircle2 size={16} /> Setujui & Perbarui Summary</button></div>
           </section>
         </div>
       )}

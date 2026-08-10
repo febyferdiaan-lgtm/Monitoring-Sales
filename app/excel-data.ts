@@ -81,7 +81,6 @@ export async function seedSalesFromExcel() {
     current.paid += Number(raw.payment_amount || 0);
     documentTotals.set(documentKey, current);
   }
-  await db.prepare("DELETE FROM sales WHERE source_key LIKE 'seed-%' OR source_key LIKE 'xlsx-%'").run();
   for (let offset = 0; offset < excelSeed.sales.length; offset += 35) {
     await db.batch(excelSeed.sales.slice(offset, offset + 35).map((row) => {
       const now = new Date().toISOString();
@@ -103,9 +102,11 @@ export async function seedSalesFromExcel() {
           customer=excluded.customer, location=excluded.location, transaction_type=excluded.transaction_type,
           project=excluded.project, rfq_no=excluded.rfq_no, quotation_no=excluded.quotation_no,
           po_no=excluded.po_no, delivery_no=excluded.delivery_no, invoice_no=excluded.invoice_no,
-          invoice_amount=excluded.invoice_amount, amount_paid=excluded.amount_paid,
-          due_date=excluded.due_date, payment_date=excluded.payment_date,
-          payment_status=excluded.payment_status, transaction_status=excluded.transaction_status,
+          invoice_amount=excluded.invoice_amount, amount_paid=MAX(sales.amount_paid, excluded.amount_paid),
+          due_date=excluded.due_date,
+          payment_date=CASE WHEN sales.amount_paid > excluded.amount_paid THEN sales.payment_date ELSE excluded.payment_date END,
+          payment_status=CASE WHEN MAX(sales.amount_paid, excluded.amount_paid) >= excluded.invoice_amount THEN 'CLOSED' ELSE excluded.payment_status END,
+          transaction_status=excluded.transaction_status,
           notes=excluded.notes, updated_at=excluded.updated_at`
       ).bind(
         row.source_key, row.customer, row.location, row.transaction_type, row.project, row.rfq_no,

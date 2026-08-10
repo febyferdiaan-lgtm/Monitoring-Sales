@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const sales = sqliteTable("sales", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -69,3 +69,25 @@ export const salesDocumentItems = sqliteTable("sales_document_items", {
   unitPrice: real("unit_price").notNull().default(0),
   lineTotal: real("line_total").notNull().default(0),
 });
+
+export const paymentConfirmations = sqliteTable("payment_confirmations", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  saleId: integer("sale_id").notNull(),
+  invoiceNo: text("invoice_no").notNull(),
+  customer: text("customer").notNull(),
+  amount: real("amount").notNull(),
+  paymentDate: text("payment_date").notNull(),
+  referenceNo: text("reference_no").notNull().default(""),
+  notes: text("notes").notNull().default(""),
+  status: text("status").notNull().default("PENDING"),
+  requestedByEmail: text("requested_by_email").notNull(),
+  requestedByName: text("requested_by_name").notNull().default(""),
+  requestedAt: text("requested_at").notNull(),
+  reviewedByEmail: text("reviewed_by_email").notNull().default(""),
+  reviewedByName: text("reviewed_by_name").notNull().default(""),
+  reviewedAt: text("reviewed_at").notNull().default(""),
+  reviewNotes: text("review_notes").notNull().default(""),
+}, (table) => [
+  index("idx_payment_confirmations_status_requested").on(table.status, table.requestedAt),
+  index("idx_payment_confirmations_sale_id").on(table.saleId),
+]);

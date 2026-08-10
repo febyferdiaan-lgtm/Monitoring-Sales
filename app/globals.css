@@ -218,6 +218,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .receivable-summary { background: linear-gradient(135deg, #fff 0%, #fff3f3 100%); }
 .summary-receivables { margin-top: 20px; }
 .receivable-summary .customer-summary-metrics strong { color: var(--red); }
+.payment-verification-panel { padding: 18px; border-color: #efdcae; background: linear-gradient(135deg, #fffdf8, #fff); }
+.verification-count { min-height: 34px; padding: 0 11px; display: inline-flex; align-items: center; gap: 6px; border-radius: 9px; background: #fff3d6; color: #9a630b; font-size: 10px; font-weight: 750; white-space: nowrap; }
+.verification-list { display: grid; gap: 9px; }
+.verification-item { min-height: 66px; padding: 10px 12px; display: grid; grid-template-columns: 38px minmax(180px, 1fr) minmax(190px, auto) auto; align-items: center; gap: 12px; border: 1px solid #eee7d7; border-radius: 12px; background: #fff; }
+.verification-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: #fff3d6; color: #b9780e; }
+.verification-item > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.verification-item b { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.verification-item small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.verification-amount { align-items: flex-end; text-align: right; }
+.verification-amount strong { font-size: 12px; font-variant-numeric: tabular-nums; }
 .receivable-panel { overflow: hidden; }
 .receivable-table { min-width: 1080px; }
 .receivable-customer-row td { padding-top: 14px; padding-bottom: 14px; }
@@ -233,6 +243,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .receivable-invoices-head strong { font-size: 12px; }
 .receivable-invoices-head span { color: var(--muted); font-size: 9px; }
 .invoice-detail-table { min-width: 980px; }
+.payment-pending-badge { min-height: 27px; padding: 5px 8px; display: inline-flex; align-items: center; gap: 5px; border-radius: 7px; background: #fff3d6; color: #9a630b; font-size: 8px; font-weight: 750; white-space: nowrap; }
+.payment-confirm-button { min-height: 29px; padding: 0 9px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #cde7d4; border-radius: 8px; background: #eff9f1; color: #2d8b47; font-size: 8px; font-weight: 750; cursor: pointer; white-space: nowrap; }
+.payment-confirm-button:hover { border-color: var(--green); background: #e3f3e7; }
 .report-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .report-card { padding: 20px; display: flex; flex-direction: column; gap: 7px; }
 .report-card p { margin: 0; color: var(--secondary); font-size: 11px; }.report-card strong { font-size: 26px; }.report-card span { color: var(--muted); font-size: 10px; }
@@ -300,6 +313,24 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .sales-form textarea { min-height: 78px; resize: vertical; }
 .sales-form input:focus, .sales-form select:focus, .sales-form textarea:focus { border-color: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
 .form-actions { display: flex; flex-direction: row-reverse; gap: 9px; justify-content: flex-start; padding-top: 8px; }
+.payment-modal, .verification-modal { width: min(640px, 100%); }
+.payment-invoice-summary { margin: 18px 0 0; padding: 15px 17px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid #f0dede; border-radius: 12px; background: linear-gradient(135deg, #fff8f8, #fff); }
+.payment-invoice-summary span { color: var(--secondary); font-size: 11px; }.payment-invoice-summary strong { color: var(--red); font-size: 20px; font-variant-numeric: tabular-nums; }
+.payment-form { padding-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+.payment-form label, .verification-notes { display: flex; flex-direction: column; gap: 6px; color: var(--secondary); font-size: 10px; font-weight: 700; }
+.payment-form .wide { grid-column: 1 / -1; }
+.payment-form input, .payment-form textarea, .verification-notes textarea { width: 100%; min-height: 42px; padding: 10px 11px; border: 1px solid var(--border); border-radius: 9px; outline: 0; background: #fff; color: var(--charcoal); font-size: 12px; }
+.payment-form textarea, .verification-notes textarea { min-height: 76px; resize: vertical; }
+.payment-form input:focus, .payment-form textarea:focus, .verification-notes textarea:focus { border-color: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
+.payment-flow-note { min-height: 58px; padding: 11px 13px; display: flex; align-items: center; gap: 10px; border-radius: 11px; background: #f3f7ff; color: var(--blue); }
+.payment-flow-note span { display: flex; flex-direction: column; gap: 2px; }.payment-flow-note b { color: #285fae; font-size: 10px; }.payment-flow-note small { color: #6680a5; font-size: 9px; }
+.verification-detail { margin: 17px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.verification-detail > div { padding: 12px; border-radius: 10px; background: var(--subtle); }.verification-detail .wide { grid-column: 1 / -1; }
+.verification-detail dt { margin-bottom: 5px; color: var(--muted); font-size: 9px; }.verification-detail dd { margin: 0; overflow-wrap: anywhere; font-size: 11px; font-weight: 650; }
+.verification-actions { padding-top: 15px; display: flex; justify-content: flex-end; gap: 9px; }
+.reject-button, .approve-button { min-height: 42px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 10px; font-size: 11px; font-weight: 750; cursor: pointer; }
+.reject-button { border: 1px solid #f0cfd1; background: #fff; color: var(--red); }.approve-button { border: 0; background: var(--green); color: #fff; box-shadow: 0 6px 14px rgba(62,164,90,.18); }
+.reject-button:disabled, .approve-button:disabled { opacity: .55; cursor: wait; }
 .detail-modal { width: min(680px, 100%); }
 .detail-timeline { display: flex; justify-content: space-between; position: relative; padding: 24px 8px 20px; }
 .detail-timeline::before { content: ""; position: absolute; left: 35px; right: 35px; top: 38px; height: 2px; background: var(--border); }
@@ -391,6 +422,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .access-role-grid { grid-template-columns: 1fr; }
   .access-layout { grid-template-columns: 1fr; }
   .excel-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .verification-item { grid-template-columns: 38px minmax(160px, 1fr) auto; }
+  .verification-amount { grid-column: 2; align-items: flex-start; text-align: left; }
+  .verification-item > button { grid-column: 3; grid-row: 1 / 3; }
 }
 
 @media (max-width: 620px) {
@@ -424,6 +458,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .module-banner > .primary-button { margin: 0; }
   .sales-form, .detail-grid { grid-template-columns: 1fr; }
   .sales-form .wide, .detail-grid .wide { grid-column: auto; }
+  .payment-form, .verification-detail { grid-template-columns: 1fr; }
+  .payment-form .wide, .verification-detail .wide { grid-column: auto; }
+  .verification-item { grid-template-columns: 36px 1fr; }
+  .verification-amount { grid-column: 2; }
+  .verification-item > button { width: 100%; grid-column: 1 / -1; grid-row: auto; justify-content: center; }
+  .verification-actions { flex-direction: column-reverse; }
+  .verification-actions button { width: 100%; }
   .document-action-card { grid-template-columns: 48px 1fr; padding: 17px; }
   .document-action-card > span { width: 48px; height: 48px; }
   .document-action-card > button { grid-column: 1 / -1; width: 100%; }

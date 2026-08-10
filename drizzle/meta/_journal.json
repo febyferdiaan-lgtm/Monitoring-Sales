@@ -15,6 +15,13 @@
       "when": 1785315563800,
       "tag": "0001_overrated_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786346129626,
+      "tag": "0002_plain_bloodscream",
+      "breakpoints": true
     }
   ]
 }
