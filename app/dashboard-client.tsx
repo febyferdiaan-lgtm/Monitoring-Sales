@@ -1268,6 +1268,23 @@ export default function DashboardClient() {
 
   return (
     <main className="app-shell">
+      {loading && (
+        <div className="site-loading-screen" role="status" aria-live="polite" aria-label="Menyinkronkan data website">
+          <div className="site-loading-card">
+            <div className="site-loading-logo-wrap" aria-hidden="true">
+              <span className="site-loading-orbit" />
+              <span className="site-loading-orbit orbit-secondary" />
+              <div className="site-loading-logo-shell">
+                <img src="/mda-logo.svg" alt="" />
+              </div>
+            </div>
+            <p>PT MDA Amanah Sejahtera</p>
+            <h2>Menyinkronkan data</h2>
+            <span className="site-loading-message">Mohon tunggu, dashboard sedang diperbarui.</span>
+            <span className="site-loading-progress" aria-hidden="true"><i /></span>
+          </div>
+        </div>
+      )}
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <div className="brand">
           <div className="brand-logo-shell">
