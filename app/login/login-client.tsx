@@ -1,10 +1,14 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "../supabase/client";
 
 export default function LoginClient() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -13,12 +17,26 @@ export default function LoginClient() {
     setLoading(true);
     setStatus("");
     const supabase = createSupabaseBrowserClient();
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithPassword({
       email: email.trim().toLowerCase(),
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      password,
     });
-    setLoading(false);
-    setStatus(error ? error.message : "Tautan login sudah dikirim. Silakan periksa email Anda.");
+    if (error) {
+      setLoading(false);
+      setStatus("Email atau password tidak sesuai.");
+      return;
+    }
+
+    const access = await fetch("/api/me", { cache: "no-store" });
+    if (!access.ok) {
+      await supabase.auth.signOut();
+      setLoading(false);
+      setStatus("Akun ini belum terdaftar atau aksesnya sudah dinonaktifkan.");
+      return;
+    }
+
+    router.replace("/");
+    router.refresh();
   }
 
   return (
@@ -27,13 +45,20 @@ export default function LoginClient() {
         <img src="/mda-logo.png" alt="PT MDA Amanah Sejahtera" />
         <p className="eyebrow">PT MDA AMANAH SEJAHTERA</p>
         <h1>Monitoring Sales</h1>
-        <p>Masuk menggunakan email yang sudah terdaftar pada akses pengguna.</p>
+        <p>Masuk menggunakan email dan password akun yang sudah terdaftar.</p>
         <form onSubmit={submit}>
           <label htmlFor="email">Alamat email</label>
-          <input id="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" />
-          <button type="submit" disabled={loading}>{loading ? "Mengirim…" : "Kirim tautan login"}</button>
+          <input id="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="username" placeholder="nama@perusahaan.com" />
+          <label htmlFor="password">Password</label>
+          <div className="login-password-field">
+            <input id="password" type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" placeholder="Masukkan password" />
+            <button type="button" className="password-toggle" onClick={() => setShowPassword((shown) => !shown)} aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"}>
+              {showPassword ? "Sembunyikan" : "Lihat"}
+            </button>
+          </div>
+          <button type="submit" className="login-submit" disabled={loading}>{loading ? "Memeriksa…" : "Masuk ke Dashboard"}</button>
         </form>
-        {status ? <p className="login-status" role="status">{status}</p> : null}
+        {status ? <p className="login-status login-error" role="alert">{status}</p> : null}
       </section>
     </main>
   );
