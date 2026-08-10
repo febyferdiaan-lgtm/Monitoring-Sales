@@ -186,7 +186,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .module-banner .banner-icon { width: 58px; height: 58px; display: grid; place-items: center; flex: none; border-radius: 16px; background: #fff; color: var(--blue); box-shadow: var(--shadow); }
 .module-banner.red .banner-icon { color: var(--red); }.module-banner.green .banner-icon { color: var(--green); }
 .module-banner h2 { margin: 0; font-size: 23px; }.module-banner p:last-child { margin: 6px 0 0; color: var(--secondary); font-size: 12px; }
-.module-banner > .primary-button { margin-left: auto; }
+.module-banner > .primary-button, .module-banner > .banner-actions { margin-left: auto; }
+.banner-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.banner-actions a { text-decoration: none; }
 .full-table { padding: 18px; }
 .sales-table { min-width: 900px; }
 .customer-summary { min-height: 132px; padding: 21px; display: grid; grid-template-columns: minmax(240px, 1.2fr) minmax(520px, 2fr); align-items: center; gap: 24px; background: linear-gradient(135deg, #fff 0%, #fff7f7 100%); }
@@ -465,7 +467,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .customer-summary-metrics > div { padding: 12px; }
   .customer-summary-metrics strong { font-size: 15px; }
   .module-banner { align-items: flex-start; flex-wrap: wrap; }
-  .module-banner > .primary-button { margin: 0; }
+  .module-banner > .primary-button, .module-banner > .banner-actions { margin: 0; }
   .excel-source-actions, .report-download-actions { margin-left: 0; }
   .excel-source-actions button, .report-download-actions button { width: 100%; }
   .sales-form, .detail-grid { grid-template-columns: 1fr; }

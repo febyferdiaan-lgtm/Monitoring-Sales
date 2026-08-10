@@ -59,7 +59,56 @@ export async function POST(request: NextRequest) {
     const access = await requireRole(request, ["ADMIN", "EDITOR"]);
     if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
-    const body = await request.json() as SparePartInput;
+    const body = await request.json() as SparePartInput & { items?: SparePartInput[] };
+    if (Array.isArray(body.items)) {
+      if (!body.items.length || body.items.length > 2000) {
+        return NextResponse.json({ error: "File harus berisi 1 sampai 2.000 sparepart." }, { status: 400 });
+      }
+      const normalized = new Map<string, Required<Omit<SparePartInput, "id">>>();
+      const invalidRows: number[] = [];
+      body.items.forEach((item, index) => {
+        const partNumber = String(item.part_number || "").trim().toUpperCase().slice(0, 100);
+        const name = String(item.name || "").trim().slice(0, 240);
+        const price = Number(item.selling_price || 0);
+        if (!partNumber || !name || !Number.isFinite(price) || price < 0) {
+          invalidRows.push(index + 2);
+          return;
+        }
+        normalized.set(partNumber, {
+          part_number: partNumber,
+          name,
+          category: String(item.category || "").trim().slice(0, 120),
+          brand: String(item.brand || "").trim().slice(0, 120),
+          unit: String(item.unit || "Pcs").trim().slice(0, 40) || "Pcs",
+          selling_price: price,
+          notes: String(item.notes || "").trim().slice(0, 500),
+        });
+      });
+      if (invalidRows.length) {
+        return NextResponse.json({
+          error: `Baris ${invalidRows.slice(0, 10).join(", ")} belum memiliki Part Number, Nama Spare Part, atau Harga Jual yang valid.`,
+        }, { status: 400 });
+      }
+      const db = await getDb();
+      const now = new Date().toISOString();
+      const items = Array.from(normalized.values());
+      for (let offset = 0; offset < items.length; offset += 35) {
+        await db.batch(items.slice(offset, offset + 35).map((item) => db.prepare(
+          `INSERT INTO spare_parts (
+            part_number, name, category, brand, unit, selling_price, notes, is_active, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+          ON CONFLICT(part_number) DO UPDATE SET
+            name=excluded.name, category=excluded.category, brand=excluded.brand,
+            unit=excluded.unit, selling_price=excluded.selling_price, notes=excluded.notes,
+            is_active=1, updated_at=excluded.updated_at`,
+        ).bind(
+          item.part_number, item.name, item.category, item.brand, item.unit,
+          item.selling_price, item.notes, now, now,
+        )));
+      }
+      await db.prepare("PRAGMA optimize").run();
+      return NextResponse.json({ ok: true, imported: items.length, duplicates_in_file: body.items.length - items.length });
+    }
     const partNumber = String(body.part_number || "").trim().toUpperCase();
     const name = String(body.name || "").trim();
     if (!partNumber || !name) return NextResponse.json({ error: "Part number and name are required" }, { status: 400 });

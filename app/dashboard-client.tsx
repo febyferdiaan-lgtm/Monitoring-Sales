@@ -425,6 +425,7 @@ export default function DashboardClient() {
   const [reviewNotes, setReviewNotes] = useState("");
   const [userDraft, setUserDraft] = useState<{ name: string; email: string; role: AppRole }>({ name: "", email: "", role: "VIEWER" });
   const fileRef = useRef<HTMLInputElement>(null);
+  const sparePartFileRef = useRef<HTMLInputElement>(null);
 
   const role = identity?.role ?? "VIEWER";
   const canEdit = role === "ADMIN" || role === "EDITOR";
@@ -995,6 +996,55 @@ export default function DashboardClient() {
     URL.revokeObjectURL(url);
   };
 
+  const importSpareParts = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setSaving(true);
+    setNotice("Membaca template Master Spare Part…");
+    try {
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const sheet = workbook.Sheets["DATA SPARE PART"] ?? workbook.Sheets[workbook.SheetNames[0]];
+      if (!sheet) throw new Error("Sheet DATA SPARE PART tidak ditemukan.");
+      const normalizeHeader = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+      const tableRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+      const headerIndex = tableRows.slice(0, 12).findIndex((row) => row.some((cell) => normalizeHeader(String(cell)) === "part_number"));
+      if (headerIndex < 0) throw new Error("Kolom Part Number tidak ditemukan. Gunakan template yang tersedia.");
+      const headers = tableRows[headerIndex].map((cell) => String(cell));
+      const sourceRows = tableRows.slice(headerIndex + 1).map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index]])));
+      const valueFrom = (row: Record<string, unknown>, aliases: string[]) => {
+        const normalizedRow = new Map(Object.entries(row).map(([key, value]) => [normalizeHeader(key), value]));
+        return aliases.map((alias) => normalizedRow.get(alias)).find((value) => value !== undefined) ?? "";
+      };
+      const items = sourceRows.map((row) => ({
+        part_number: String(valueFrom(row, ["part_number", "part_no", "kode_part"]) || "").trim(),
+        name: String(valueFrom(row, ["nama_spare_part", "nama_part", "name", "description", "deskripsi"]) || "").trim(),
+        category: String(valueFrom(row, ["kategori", "category"]) || "").trim(),
+        brand: String(valueFrom(row, ["merek", "brand"]) || "").trim(),
+        unit: String(valueFrom(row, ["satuan", "unit", "uom"]) || "Pcs").trim(),
+        selling_price: Number(valueFrom(row, ["harga_jual", "selling_price", "price"]) || 0),
+        notes: String(valueFrom(row, ["catatan", "notes", "remark"]) || "").trim(),
+      })).filter((item) => item.part_number || item.name);
+      if (!items.length) throw new Error("Template belum berisi data spare part.");
+      const invalidPriceRow = items.findIndex((item) => !Number.isFinite(item.selling_price) || item.selling_price < 0);
+      if (invalidPriceRow >= 0) throw new Error(`Harga Jual pada baris data ${invalidPriceRow + 1} harus berupa angka yang valid.`);
+      const response = await fetch("/api/spareparts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Data spare part belum berhasil diimpor.");
+      setNotice(`${payload.imported} sparepart berhasil diimpor${payload.duplicates_in_file ? `; ${payload.duplicates_in_file} part number duplikat diperbarui.` : "."}`);
+      await loadBusinessData();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Format template spare part belum dikenali.");
+    } finally {
+      setSaving(false);
+      if (sparePartFileRef.current) sparePartFileRef.current.value = "";
+    }
+  };
+
   const downloadUpdatedExcel = async () => {
     setSaving(true);
     setNotice("Menyiapkan file Excel dengan Summary terbaru…");
@@ -1355,7 +1405,12 @@ export default function DashboardClient() {
           <div className="module-banner parts-banner">
             <span className="banner-icon"><PackageSearch /></span>
             <div><p className="eyebrow">MASTER SPAREPART</p><h2>{parts.length} sparepart terdaftar</h2><p>Pilih part number saat membuat penawaran agar harga jual dan satuan terisi otomatis.</p></div>
-            {canEdit && <button className="primary-button" onClick={() => openPartForm()}><Plus size={17} /> Tambah Sparepart</button>}
+            {canEdit && <div className="banner-actions">
+              <a className="secondary-button" href="/template-import-sparepart.xlsx" download><Download size={17} /> Template Excel</a>
+              <input ref={sparePartFileRef} className="visually-hidden" type="file" accept=".xlsx,.xls" onChange={importSpareParts} />
+              <button className="secondary-button" onClick={() => sparePartFileRef.current?.click()} disabled={saving}><Upload size={17} /> Impor Massal</button>
+              <button className="primary-button" onClick={() => openPartForm()}><Plus size={17} /> Tambah Sparepart</button>
+            </div>}
           </div>
           <article className="panel full-table">
             <div className="section-head"><div><p className="eyebrow">KATALOG HARGA JUAL</p><h2>Part Number & Harga</h2></div><span className="period-chip">{visibleParts.length} item</span></div>
