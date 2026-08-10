@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "../../authz";
 import { seedSparePartsFromExcel } from "../../excel-data";
-import { createSupabaseServerClient, isSupabaseConfigured } from "../../supabase/server";
 
 type SparePartInput = {
   id?: number;
@@ -35,7 +34,6 @@ const getDb = async () => {
 };
 
 async function ensureDatabase() {
-  if (isSupabaseConfigured()) return;
   const db = await getDb();
   await db.prepare(schemaSql).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS spare_parts_name_idx ON spare_parts(name)").run();
@@ -46,14 +44,7 @@ export async function GET(request: NextRequest) {
     const access = await requireRole(request, ["ADMIN", "EDITOR", "VIEWER"]);
     if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
-    if (!isSupabaseConfigured()) await seedSparePartsFromExcel();
-    if (isSupabaseConfigured()) {
-      const supabase = await createSupabaseServerClient();
-      const { data, error } = await supabase.from("spare_parts").select("*")
-        .eq("is_active", true).order("updated_at", { ascending: false }).order("name");
-      if (error) throw error;
-      return NextResponse.json({ data });
-    }
+    await seedSparePartsFromExcel();
     const result = await (await getDb()).prepare(
       `WITH sold_lines AS (
         SELECT COALESCE(items.spare_part_id, matched_parts.id) AS part_id,
@@ -137,13 +128,6 @@ export async function POST(request: NextRequest) {
       const db = await getDb();
       const now = new Date().toISOString();
       const items = Array.from(normalized.values());
-      if (isSupabaseConfigured()) {
-        const supabase = await createSupabaseServerClient();
-        const payload = items.map((item) => ({ ...item, is_active: true, created_at: now, updated_at: now }));
-        const { error } = await supabase.from("spare_parts").upsert(payload, { onConflict: "part_number" });
-        if (error) throw error;
-        return NextResponse.json({ ok: true, imported: items.length, duplicates_in_file: body.items.length - items.length });
-      }
       for (let offset = 0; offset < items.length; offset += 35) {
         await db.batch(items.slice(offset, offset + 35).map((item) => db.prepare(
           `INSERT INTO spare_parts (
@@ -165,16 +149,6 @@ export async function POST(request: NextRequest) {
     const name = String(body.name || "").trim();
     if (!partNumber || !name) return NextResponse.json({ error: "Part number and name are required" }, { status: 400 });
     const now = new Date().toISOString();
-    if (isSupabaseConfigured()) {
-      const supabase = await createSupabaseServerClient();
-      const { error } = await supabase.from("spare_parts").upsert({
-        part_number: partNumber, name, category: String(body.category || ""), brand: String(body.brand || ""),
-        unit: String(body.unit || "Pcs"), selling_price: Math.max(0, Number(body.selling_price || 0)),
-        notes: String(body.notes || ""), is_active: true, created_at: now, updated_at: now,
-      }, { onConflict: "part_number" });
-      if (error) throw error;
-      return NextResponse.json({ ok: true });
-    }
     await (await getDb()).prepare(
       `INSERT INTO spare_parts (
         part_number, name, category, brand, unit, selling_price, notes, is_active, created_at, updated_at
@@ -207,17 +181,6 @@ export async function PATCH(request: NextRequest) {
     await ensureDatabase();
     const body = await request.json() as SparePartInput & { is_active?: boolean };
     if (!body.id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-    if (isSupabaseConfigured()) {
-      const supabase = await createSupabaseServerClient();
-      const { error } = await supabase.from("spare_parts").update({
-        part_number: String(body.part_number || "").trim().toUpperCase(), name: String(body.name || "").trim(),
-        category: String(body.category || ""), brand: String(body.brand || ""), unit: String(body.unit || "Pcs"),
-        selling_price: Math.max(0, Number(body.selling_price || 0)), notes: String(body.notes || ""),
-        is_active: body.is_active !== false, updated_at: new Date().toISOString(),
-      }).eq("id", Number(body.id));
-      if (error) throw error;
-      return NextResponse.json({ ok: true });
-    }
     await (await getDb()).prepare(
       `UPDATE spare_parts SET part_number=?, name=?, category=?, brand=?, unit=?,
        selling_price=?, notes=?, is_active=?, updated_at=? WHERE id=?`
