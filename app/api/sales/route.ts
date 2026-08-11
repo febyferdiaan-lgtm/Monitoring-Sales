@@ -187,29 +187,57 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const access = await requireRole(request, ["ADMIN", "EDITOR"]);
+    const access = await requireRole(request, ["ADMIN"]);
     if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
-    const body = await request.json() as { id?: number; amount_paid?: number; payment_status?: string };
+    const body = await request.json() as InputRecord & { id?: number };
     if (!body.id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    const customer = String(body.customer || "").trim();
+    const project = String(body.project || "").trim();
+    const invoiceAmount = Math.max(0, Number(body.invoice_amount || 0));
+    const amountPaid = Math.max(0, Number(body.amount_paid || 0));
+    if (!customer || !Number.isFinite(invoiceAmount) || !Number.isFinite(amountPaid)) {
+      return NextResponse.json({ error: "Customer dan nominal transaksi wajib valid." }, { status: 400 });
+    }
+    if (amountPaid > invoiceAmount && invoiceAmount > 0) {
+      return NextResponse.json({ error: "Nominal terbayar tidak boleh melebihi nilai invoice." }, { status: 400 });
+    }
+    const updatedAt = new Date().toISOString();
+    const payload = {
+      customer,
+      location: String(body.location || "").trim(),
+      transaction_type: String(body.transaction_type || "").trim(),
+      project,
+      rfq_no: String(body.rfq_no || "").trim(),
+      quotation_no: String(body.quotation_no || "").trim(),
+      po_no: String(body.po_no || "").trim(),
+      delivery_no: String(body.delivery_no || "").trim(),
+      invoice_no: String(body.invoice_no || "").trim(),
+      invoice_amount: invoiceAmount,
+      amount_paid: amountPaid,
+      due_date: String(body.due_date || "").trim(),
+      payment_date: String(body.payment_date || "").trim(),
+      payment_status: String(body.payment_status || "OPEN").toUpperCase() === "CLOSED" ? "CLOSED" : "OPEN",
+      transaction_status: String(body.transaction_status || "").trim(),
+      notes: String(body.notes || "").trim(),
+      updated_at: updatedAt,
+    };
     if (isSupabaseConfigured()) {
       const supabase = await createSupabaseServerClient();
-      const { error } = await supabase.from("sales").update({
-        amount_paid: Number(body.amount_paid || 0),
-        payment_status: String(body.payment_status || "OPEN"),
-        payment_date: body.payment_status === "CLOSED" ? new Date().toISOString().slice(0, 10) : "",
-        updated_at: new Date().toISOString(),
-      }).eq("id", Number(body.id));
+      const { error } = await supabase.from("sales").update(payload).eq("id", Number(body.id));
       if (error) throw error;
       return NextResponse.json({ ok: true });
     }
     await (await getDb()).prepare(
-      "UPDATE sales SET amount_paid = ?, payment_status = ?, payment_date = ?, updated_at = ? WHERE id = ?"
+      `UPDATE sales SET customer = ?, location = ?, transaction_type = ?, project = ?, rfq_no = ?,
+       quotation_no = ?, po_no = ?, delivery_no = ?, invoice_no = ?, invoice_amount = ?,
+       amount_paid = ?, due_date = ?, payment_date = ?, payment_status = ?, transaction_status = ?,
+       notes = ?, updated_at = ? WHERE id = ?`
     ).bind(
-      Number(body.amount_paid || 0),
-      String(body.payment_status || "OPEN"),
-      body.payment_status === "CLOSED" ? new Date().toISOString().slice(0, 10) : "",
-      new Date().toISOString(),
+      payload.customer, payload.location, payload.transaction_type, payload.project, payload.rfq_no,
+      payload.quotation_no, payload.po_no, payload.delivery_no, payload.invoice_no, payload.invoice_amount,
+      payload.amount_paid, payload.due_date, payload.payment_date, payload.payment_status,
+      payload.transaction_status, payload.notes, payload.updated_at,
       Number(body.id)
     ).run();
     return NextResponse.json({ ok: true });

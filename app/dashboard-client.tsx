@@ -400,6 +400,9 @@ export default function DashboardClient() {
   const [showPart, setShowPart] = useState(false);
   const [showDocument, setShowDocument] = useState(false);
   const [selected, setSelected] = useState<Sale | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [editingSale, setEditingSale] = useState<Sale | null>(null);
+  const [editSaleDraft, setEditSaleDraft] = useState<DraftSale>(emptyDraft);
   const [selectedDocument, setSelectedDocument] = useState<SalesDocument | null>(null);
   const [draft, setDraft] = useState<DraftSale>(emptyDraft);
   const [parts, setParts] = useState<SparePart[]>([]);
@@ -679,6 +682,51 @@ export default function DashboardClient() {
       await loadSales();
     } catch {
       setNotice("Data belum berhasil disimpan.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openTransactionEdit = (sale: Sale) => {
+    setEditingSale(sale);
+    setEditSaleDraft({
+      customer: sale.customer,
+      location: sale.location,
+      transaction_type: sale.transaction_type,
+      project: sale.project,
+      rfq_no: sale.rfq_no,
+      quotation_no: sale.quotation_no,
+      po_no: sale.po_no,
+      delivery_no: sale.delivery_no,
+      invoice_no: sale.invoice_no,
+      invoice_amount: Number(sale.invoice_amount),
+      amount_paid: Number(sale.amount_paid),
+      due_date: sale.due_date,
+      payment_date: sale.payment_date,
+      payment_status: sale.payment_status,
+      transaction_status: sale.transaction_status,
+      notes: sale.notes,
+    });
+  };
+
+  const saveTransactionEdit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!editingSale || !isAdmin) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/sales", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editingSale.id, ...editSaleDraft }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Transaksi belum berhasil diperbarui.");
+      setEditingSale(null);
+      setSelectedCustomer(editSaleDraft.customer.trim() || selectedCustomer);
+      setNotice("Data transaksi customer berhasil diperbarui.");
+      await loadSales();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Transaksi belum berhasil diperbarui.");
     } finally {
       setSaving(false);
     }
@@ -1391,6 +1439,7 @@ export default function DashboardClient() {
                 <div><span>Terbayar</span><strong className="paid-value">{money.format(customer.paid)}</strong></div>
                 <div><span>Outstanding</span><strong className={customer.outstanding > 0 ? "outstanding-value" : ""}>{money.format(customer.outstanding)}</strong></div>
               </div>
+              <button className="customer-detail-button" type="button" onClick={() => setSelectedCustomer(customer.name)}><Eye size={14} /> Lihat Detail Transaksi</button>
             </article>
           ))}
           {!customers.length && <div className="panel customer-empty">Belum ada customer pada filter ini.</div>}
@@ -1750,6 +1799,61 @@ export default function DashboardClient() {
                 <div key={key}><span>{key.replaceAll("_", " ")}</span><strong>{typeof value === "number" && /(price|amount|payment_difference|invoice_dpp|invoice_ppn|invoice_pph23|total_ar)$/.test(key) ? money.format(value) : String(value)}</strong></div>
               ))}
             </div>
+          </section>
+        </div>
+      )}
+
+      {selectedCustomer && (
+        <div className="modal-backdrop" onMouseDown={() => setSelectedCustomer(null)}>
+          <section className="modal customer-detail-modal" role="dialog" aria-modal="true" aria-labelledby="customer-detail-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <div><p className="eyebrow">DETAIL TRANSAKSI CUSTOMER</p><h2 id="customer-detail-title">{selectedCustomer}</h2><p>{filtered.filter((sale) => sale.customer.trim() === selectedCustomer).length} transaksi pada periode dan filter aktif.</p></div>
+              <button className="icon-button" onClick={() => setSelectedCustomer(null)} aria-label="Tutup"><X /></button>
+            </div>
+            <div className="table-scroll customer-transaction-scroll">
+              <table className="data-table customer-transaction-table">
+                <thead><tr><th>Proyek / Jenis</th><th>Dokumen</th><th className="number">Nilai Invoice</th><th className="number">Terbayar</th><th>Status</th><th>Aksi</th></tr></thead>
+                <tbody>
+                  {filtered.filter((sale) => sale.customer.trim() === selectedCustomer).map((sale) => (
+                    <tr key={sale.id}>
+                      <td><b>{sale.project || "Tanpa proyek"}</b><small>{sale.transaction_type || "Jenis transaksi belum diisi"}{sale.location ? ` · ${sale.location}` : ""}</small></td>
+                      <td><b>{sale.invoice_no || sale.po_no || sale.quotation_no || sale.rfq_no || "—"}</b><small>{sale.invoice_no ? "Invoice" : sale.po_no ? "PO" : sale.quotation_no ? "Quotation" : sale.rfq_no ? "RFQ" : "Belum ada dokumen"}</small></td>
+                      <td className="number">{money.format(Number(sale.invoice_amount || 0))}</td>
+                      <td className="number">{money.format(Number(sale.amount_paid || 0))}</td>
+                      <td><span className={`status ${stageOf(sale) === "Payment" ? "paid" : "stage"}`}>{sale.payment_status || stageOf(sale)}</span></td>
+                      <td><div className="customer-transaction-actions"><button className="part-detail-button" type="button" onClick={() => void openSaleDetail(sale)}><Eye size={13} /> Detail</button>{isAdmin && <button className="part-detail-button edit" type="button" onClick={() => openTransactionEdit(sale)}><Pencil size={13} /> Edit</button>}</div></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {editingSale && isAdmin && (
+        <div className="modal-backdrop" onMouseDown={() => !saving && setEditingSale(null)}>
+          <section className="modal transaction-edit-modal" role="dialog" aria-modal="true" aria-labelledby="transaction-edit-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head"><div><p className="eyebrow">EDIT TRANSAKSI · ADMIN</p><h2 id="transaction-edit-title">Perbarui transaksi customer</h2><p>{editingSale.customer} · {editingSale.invoice_no || editingSale.po_no || editingSale.project}</p></div><button className="icon-button" onClick={() => setEditingSale(null)} aria-label="Tutup"><X /></button></div>
+            <form onSubmit={saveTransactionEdit} className="sales-form transaction-edit-form">
+              <label className="wide">Customer<input required value={editSaleDraft.customer} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, customer: event.target.value })} /></label>
+              <label>Lokasi<input value={editSaleDraft.location} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, location: event.target.value })} /></label>
+              <label>Jenis transaksi<select value={editSaleDraft.transaction_type} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, transaction_type: event.target.value })}><option>Trading Part</option><option>Jasa</option><option>Pengadaan</option><option>Project</option></select></label>
+              <label className="wide">Proyek<input value={editSaleDraft.project} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, project: event.target.value })} /></label>
+              <label>No. RFQ<input value={editSaleDraft.rfq_no} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, rfq_no: event.target.value })} /></label>
+              <label>No. Quotation<input value={editSaleDraft.quotation_no} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, quotation_no: event.target.value })} /></label>
+              <label>No. PO<input value={editSaleDraft.po_no} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, po_no: event.target.value })} /></label>
+              <label>No. Surat Jalan<input value={editSaleDraft.delivery_no} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, delivery_no: event.target.value })} /></label>
+              <label>No. Invoice<input value={editSaleDraft.invoice_no} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, invoice_no: event.target.value })} /></label>
+              <label>Nilai Invoice<input type="number" min="0" step="0.01" value={editSaleDraft.invoice_amount} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, invoice_amount: Number(event.target.value) })} /></label>
+              <label>Nominal Terbayar<input type="number" min="0" max={Math.max(0, editSaleDraft.invoice_amount)} step="0.01" value={editSaleDraft.amount_paid} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, amount_paid: Number(event.target.value) })} /></label>
+              <label>Jatuh Tempo<input type="date" value={editSaleDraft.due_date} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, due_date: event.target.value })} /></label>
+              <label>Tanggal Pembayaran<input type="date" value={editSaleDraft.payment_date} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, payment_date: event.target.value })} /></label>
+              <label>Status Pembayaran<select value={editSaleDraft.payment_status} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, payment_status: event.target.value })}><option value="OPEN">OPEN</option><option value="CLOSED">CLOSED</option></select></label>
+              <label>Status Transaksi<input value={editSaleDraft.transaction_status} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, transaction_status: event.target.value })} placeholder="Open, Done Invoice, Closed…" /></label>
+              <label className="wide">Catatan<textarea value={editSaleDraft.notes} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, notes: event.target.value })} /></label>
+              <div className="form-actions wide"><button type="button" className="secondary-button" onClick={() => setEditingSale(null)}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Menyimpan…" : "Simpan Perubahan"}</button></div>
+            </form>
           </section>
         </div>
       )}

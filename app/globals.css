@@ -238,6 +238,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .customer-finance strong { overflow: hidden; font-size: 11px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .customer-finance .paid-value { color: var(--green); }
 .customer-finance .outstanding-value { color: var(--red); }
+.customer-detail-button { width: 100%; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #eadfe0; border-radius: 9px; background: #fffafa; color: var(--red); font-size: 10px; font-weight: 750; cursor: pointer; }
+.customer-detail-button:hover { border-color: #e3bfc3; background: var(--red-soft); }
 .customer-empty { grid-column: 1 / -1; padding: 42px; color: var(--muted); text-align: center; font-size: 12px; }
 .receivable-summary { background: linear-gradient(135deg, #fff 0%, #fff3f3 100%); }
 .summary-receivables { margin-top: 20px; }
@@ -321,6 +323,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .users-table { min-width: 680px; }
 .users-table select { min-width: 130px; padding: 7px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 10px; }
 .excel-detail-modal { width: min(1050px, 100%); }
+.customer-detail-modal { width: min(1120px, 100%); }
+.customer-transaction-scroll { max-height: min(62vh, 620px); margin-top: 18px; }
+.customer-transaction-table { min-width: 900px; }
+.customer-transaction-actions { display: flex; align-items: center; gap: 6px; }
+.customer-transaction-actions .edit { border-color: #d9d2f3; color: var(--purple); }
+.transaction-edit-modal { width: min(820px, 100%); max-height: 92vh; overflow: auto; }
 .excel-detail-grid { padding-top: 18px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .excel-detail-grid > div { min-width: 0; min-height: 70px; padding: 11px; display: flex; flex-direction: column; gap: 7px; border-radius: 10px; background: var(--subtle); }
 .excel-detail-grid span { color: var(--muted); font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
