@@ -501,6 +501,39 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .print-notes p { margin: 8px 0 0; color: #666; font-size: 9px; line-height: 1.55; }
 .print-totals { display: grid; gap: 9px; }.print-totals div { display: flex; justify-content: space-between; gap: 20px; font-size: 9px; }.print-totals div:last-child { margin-top: 3px; padding: 12px; background: var(--red); color: #fff; font-size: 12px; }
 .print-footer { margin-top: 60px; display: flex; justify-content: space-between; gap: 30px; color: #777; font-size: 9px; }.print-footer p { max-width: 330px; }.print-footer div { min-width: 200px; display: flex; flex-direction: column; gap: 52px; text-align: center; }.print-footer strong { color: #252525; font-size: 9px; }
+.delivery-print-document { width: 210mm; min-height: 297mm; margin: 0 auto 20px; padding: 12mm; border: 1.2px solid #242424; background: #fff; color: #171717; box-shadow: 0 8px 30px rgba(0,0,0,.12); font-family: Arial, sans-serif; }
+.delivery-print-header { min-height: 34mm; padding: 2mm 3mm 4mm; display: flex; align-items: center; justify-content: space-between; gap: 20mm; border-bottom: 2px solid #242424; }
+.delivery-print-header img { width: 58mm; max-height: 28mm; object-fit: contain; object-position: left center; }
+.delivery-print-header h1 { margin: 0; font-size: 28px; font-weight: 900; letter-spacing: .04em; white-space: nowrap; }
+.delivery-company-row { padding: 5mm 3mm; display: grid; grid-template-columns: 1fr 1fr; gap: 14mm; }
+.delivery-company-row address { display: flex; flex-direction: column; gap: 2px; font-size: 9px; font-style: normal; line-height: 1.45; }
+.delivery-company-row address strong { margin-bottom: 2px; font-size: 10px; }
+.delivery-company-row dl, .delivery-ship-to dl { margin: 0; display: grid; gap: 3px; }
+.delivery-company-row dl div { display: grid; grid-template-columns: 20mm 1fr; gap: 4mm; font-size: 9px; }
+.delivery-company-row dt, .delivery-ship-to dt { font-weight: 700; }.delivery-company-row dd, .delivery-ship-to dd { margin: 0; }
+.delivery-ship-to { border: 1px solid #242424; }
+.delivery-ship-to h2, .delivery-attention h2 { margin: 0; padding: 2.5mm 4mm; background: #ff7c80; color: #111; font-size: 10px; font-weight: 900; letter-spacing: .06em; }
+.delivery-ship-to dl { padding: 4mm; }
+.delivery-ship-to dl div { display: grid; grid-template-columns: 24mm 1fr; gap: 4mm; font-size: 9px; line-height: 1.4; }
+.delivery-print-table { width: 100%; min-height: 92mm; margin-top: 5mm; border-collapse: collapse; table-layout: fixed; }
+.delivery-print-table th, .delivery-print-table td { border: 1px solid #242424; }
+.delivery-print-table th { padding: 2.5mm 2mm; background: #ff7c80; font-size: 8px; font-weight: 900; text-align: center; }
+.delivery-print-table td { height: 10mm; padding: 2.5mm 2mm; font-size: 8px; vertical-align: top; }
+.delivery-print-table tbody tr:nth-child(even) td { background: #ededed; }
+.delivery-print-table th:nth-child(1), .delivery-print-table td:nth-child(1) { width: 8mm; text-align: center; }
+.delivery-print-table th:nth-child(2), .delivery-print-table td:nth-child(2) { width: 31mm; }
+.delivery-print-table th:nth-child(4), .delivery-print-table td:nth-child(4) { width: 13mm; text-align: center; }
+.delivery-print-table th:nth-child(5), .delivery-print-table td:nth-child(5) { width: 14mm; text-align: center; }
+.delivery-print-table th:nth-child(6), .delivery-print-table td:nth-child(6) { width: 33mm; }
+.delivery-attention { margin-top: 5mm; border: 1px solid #242424; }
+.delivery-attention ol { margin: 3mm 5mm 4mm 10mm; padding-left: 4mm; font-size: 8px; line-height: 1.6; }
+.delivery-custom-note { margin: 3mm 5mm 0; font-size: 8px; font-weight: 700; line-height: 1.45; }
+.delivery-acceptance { margin: 5mm 1mm 3mm; font-size: 8px; font-weight: 800; }
+.delivery-signatures { min-height: 35mm; display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #242424; }
+.delivery-signatures > div { padding: 3mm; display: flex; flex-direction: column; align-items: center; gap: 2px; border-right: 1px solid #242424; font-size: 8px; text-align: center; }
+.delivery-signatures > div:last-child { border-right: 0; }
+.delivery-signatures strong { font-size: 9px; }.delivery-signatures span { color: #555; font-size: 7px; }
+.delivery-signatures i { width: 90%; margin-top: auto; padding-top: 2mm; border-top: 1px solid #444; font-size: 7px; font-style: normal; }
 .backdrop { display: none; }
 
 @media (max-width: 1220px) {
@@ -618,4 +651,5 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .document-preview-backdrop { position: static; padding: 0; display: block; background: #fff; }
   .document-preview-modal { width: auto; max-height: none; overflow: visible; padding: 0; background: #fff; box-shadow: none; }
   .print-document { width: 210mm; min-height: 297mm; margin: 0; padding: 16mm; box-shadow: none; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .delivery-print-document { width: 210mm; min-height: 297mm; margin: 0; padding: 12mm; box-shadow: none; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }

@@ -15,6 +15,7 @@ type DocumentItem = {
 type DocumentInput = {
   type?: "QUOTATION" | "INVOICE" | "DELIVERY_NOTE";
   quotation_sequence?: string;
+  delivery_sequence?: string;
   customer?: string;
   customer_address?: string;
   customer_pic?: string;
@@ -118,21 +119,30 @@ async function nextDocumentNumber(type: DocumentType, date: string, requestedSeq
   const year = Number.isNaN(parsed.valueOf()) ? new Date().getFullYear() : parsed.getFullYear();
   const month = Number.isNaN(parsed.valueOf()) ? new Date().getMonth() : parsed.getMonth();
   const requested = requestedSequence.trim();
-  if (requested && !/^[0-9]{1,3}$/.test(requested)) throw new Error("Tiga digit awal nomor quotation harus berupa angka.");
+  const sequenceLabel = type === "DELIVERY_NOTE" ? "surat jalan" : "quotation";
+  if (requested && !/^[0-9]{1,3}$/.test(requested)) throw new Error(`Tiga digit awal nomor ${sequenceLabel} harus berupa angka.`);
   let nextSequence = Number(requested || 0);
   if (isSupabaseConfigured()) {
     const supabase = await createSupabaseServerClient();
     const [{ data: documents, error: documentError }, salesResult] = await Promise.all([
       supabase.from("sales_documents").select("document_number").eq("document_type", type)
         .gte("document_date", `${year}-01-01`).lt("document_date", `${year + 1}-01-01`),
-      type === "QUOTATION" ? supabase.from("sales").select("quotation_no").neq("quotation_no", "") : Promise.resolve({ data: [], error: null }),
+      type === "QUOTATION"
+        ? supabase.from("sales").select("quotation_no").neq("quotation_no", "")
+        : type === "DELIVERY_NOTE"
+          ? supabase.from("sales").select("delivery_no").neq("delivery_no", "")
+          : Promise.resolve({ data: [], error: null }),
     ]);
     if (documentError) throw documentError;
     if (salesResult.error) throw salesResult.error;
     if (!nextSequence) {
       const used = [
         ...(documents ?? []).map((document) => sequenceFromNumber(document.document_number, year)),
-        ...((salesResult.data ?? []) as { quotation_no?: string }[]).map((sale) => sequenceFromNumber(sale.quotation_no, year)),
+        ...((salesResult.data ?? []) as { quotation_no?: string; delivery_no?: string }[]).flatMap((sale) =>
+          String(type === "DELIVERY_NOTE" ? sale.delivery_no || "" : sale.quotation_no || "")
+            .split(",")
+            .map((value) => sequenceFromNumber(value, year))
+        ),
       ];
       nextSequence = Math.max(0, ...used) + 1;
     }
@@ -142,20 +152,26 @@ async function nextDocumentNumber(type: DocumentType, date: string, requestedSeq
       const documents = await db.prepare(
         "SELECT document_number FROM sales_documents WHERE document_type = ? AND substr(document_date, 1, 4) = ?"
       ).bind(type, String(year)).all<{ document_number: string }>();
-      const salesExists = type === "QUOTATION"
+      const salesExists = type === "QUOTATION" || type === "DELIVERY_NOTE"
         ? await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sales'").first()
         : null;
       const sales = salesExists
-        ? await db.prepare("SELECT quotation_no FROM sales WHERE quotation_no <> ''").all<{ quotation_no: string }>()
-        : { results: [] as { quotation_no: string }[] };
+        ? type === "DELIVERY_NOTE"
+          ? await db.prepare("SELECT delivery_no FROM sales WHERE delivery_no <> ''").all<{ delivery_no: string }>()
+          : await db.prepare("SELECT quotation_no FROM sales WHERE quotation_no <> ''").all<{ quotation_no: string }>()
+        : { results: [] as { quotation_no?: string; delivery_no?: string }[] };
       const used = [
         ...documents.results.map((document) => sequenceFromNumber(document.document_number, year)),
-        ...sales.results.map((sale) => sequenceFromNumber(sale.quotation_no, year)),
+        ...sales.results.flatMap((sale) =>
+          String(type === "DELIVERY_NOTE" ? sale.delivery_no || "" : sale.quotation_no || "")
+            .split(",")
+            .map((value) => sequenceFromNumber(value, year))
+        ),
       ];
       nextSequence = Math.max(0, ...used) + 1;
     }
   }
-  if (nextSequence < 1 || nextSequence > 999) throw new Error("Nomor urut quotation harus berada di antara 001 dan 999.");
+  if (nextSequence < 1 || nextSequence > 999) throw new Error(`Nomor urut ${sequenceLabel} harus berada di antara 001 dan 999.`);
   const sequence = String(nextSequence).padStart(3, "0");
   const suffix = type === "INVOICE" ? "MDA-INV" : type === "DELIVERY_NOTE" ? "SJ-MDA" : "MDA-QUOT";
   return `${sequence}/${suffix}/${romanMonths[month]}/${year}`;
@@ -213,7 +229,12 @@ export async function POST(request: NextRequest) {
     }
 
     const documentDate = String(body.document_date || new Date().toISOString().slice(0, 10));
-    const number = await nextDocumentNumber(type, documentDate, type === "QUOTATION" ? String(body.quotation_sequence || "") : "");
+    const requestedSequence = type === "QUOTATION"
+      ? String(body.quotation_sequence || "")
+      : type === "DELIVERY_NOTE"
+        ? String(body.delivery_sequence || "")
+        : "";
+    const number = await nextDocumentNumber(type, documentDate, requestedSequence);
     if (isSupabaseConfigured()) {
       const supabase = await createSupabaseServerClient();
       const { data: duplicate, error: duplicateError } = await supabase.from("sales_documents")
@@ -471,14 +492,14 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const access = await requireRole(request, ["ADMIN"]);
+    const access = await requireRole(request, ["ADMIN", "EDITOR"]);
     if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
     const body = await request.json() as { id?: number; document_number?: string };
     const id = Number(body.id || 0);
     const documentNumber = String(body.document_number || "").trim().toUpperCase();
     if (!id || !/^[0-9]{3}\/.+/.test(documentNumber)) {
-      return NextResponse.json({ error: "Nomor quotation wajib diawali tepat tiga digit." }, { status: 400 });
+      return NextResponse.json({ error: "Nomor dokumen wajib diawali tepat tiga digit." }, { status: 400 });
     }
 
     if (isSupabaseConfigured()) {
@@ -487,22 +508,39 @@ export async function PATCH(request: NextRequest) {
         supabase.from("sales_documents").select("id,document_type,document_number").eq("id", id).single(),
         supabase.from("sales_documents").select("id").eq("document_number", documentNumber).neq("id", id).limit(1),
       ]);
-      if (currentError || !current) throw currentError ?? new Error("Quotation tidak ditemukan.");
+      if (currentError || !current) throw currentError ?? new Error("Dokumen tidak ditemukan.");
       if (duplicateError) throw duplicateError;
-      if (current.document_type !== "QUOTATION") return NextResponse.json({ error: "Hanya nomor quotation yang dapat diubah." }, { status: 400 });
-      if (duplicate?.length) return NextResponse.json({ error: `Nomor quotation ${documentNumber} sudah digunakan.` }, { status: 409 });
+      const documentType = String(current.document_type);
+      if (documentType !== "QUOTATION" && documentType !== "DELIVERY_NOTE") return NextResponse.json({ error: "Hanya nomor quotation atau surat jalan yang dapat diubah." }, { status: 400 });
+      if (documentType === "QUOTATION" && access.identity?.role !== "ADMIN") return NextResponse.json({ error: "Hanya Admin yang dapat mengubah nomor quotation yang sudah tersimpan." }, { status: 403 });
       const oldNumber = String(current.document_number);
+      if (oldNumber.replace(/^\d{1,3}/, "") !== documentNumber.replace(/^\d{3}/, "")) {
+        return NextResponse.json({ error: "Hanya tiga digit awal nomor dokumen yang dapat diubah." }, { status: 400 });
+      }
+      const documentLabel = documentType === "DELIVERY_NOTE" ? "surat jalan" : "quotation";
+      if (duplicate?.length) return NextResponse.json({ error: `Nomor ${documentLabel} ${documentNumber} sudah digunakan.` }, { status: 409 });
       if (oldNumber === documentNumber) return NextResponse.json({ ok: true, document_number: documentNumber });
       const now = new Date().toISOString();
       const { error: documentError } = await supabase.from("sales_documents")
         .update({ document_number: documentNumber, updated_at: now }).eq("id", id);
       if (documentError) throw documentError;
-      const [{ error: saleError }, { error: referenceError }] = await Promise.all([
-        supabase.from("sales").update({ quotation_no: documentNumber, updated_at: now }).eq("quotation_no", oldNumber),
-        supabase.from("sales_documents").update({ reference_no: documentNumber, updated_at: now }).eq("reference_no", oldNumber),
-      ]);
-      if (saleError) throw saleError;
+      const { error: referenceError } = await supabase.from("sales_documents")
+        .update({ reference_no: documentNumber, updated_at: now }).eq("reference_no", oldNumber);
       if (referenceError) throw referenceError;
+      if (documentType === "QUOTATION") {
+        const { error: saleError } = await supabase.from("sales")
+          .update({ quotation_no: documentNumber, updated_at: now }).eq("quotation_no", oldNumber);
+        if (saleError) throw saleError;
+      } else {
+        const { data: saleRows, error: saleReadError } = await supabase.from("sales")
+          .select("id,delivery_no").ilike("delivery_no", `%${oldNumber}%`);
+        if (saleReadError) throw saleReadError;
+        for (const sale of saleRows ?? []) {
+          const deliveryNo = String(sale.delivery_no || "").split(",").map((value) => value.trim() === oldNumber ? documentNumber : value.trim()).filter(Boolean).join(", ");
+          const { error: saleError } = await supabase.from("sales").update({ delivery_no: deliveryNo, updated_at: now }).eq("id", sale.id);
+          if (saleError) throw saleError;
+        }
+      }
       return NextResponse.json({ ok: true, document_number: documentNumber });
     }
 
@@ -510,12 +548,17 @@ export async function PATCH(request: NextRequest) {
     const current = await db.prepare(
       "SELECT id, document_type, document_number FROM sales_documents WHERE id = ? LIMIT 1"
     ).bind(id).first<{ id: number; document_type: string; document_number: string }>();
-    if (!current) return NextResponse.json({ error: "Quotation tidak ditemukan." }, { status: 404 });
-    if (current.document_type !== "QUOTATION") return NextResponse.json({ error: "Hanya nomor quotation yang dapat diubah." }, { status: 400 });
+    if (!current) return NextResponse.json({ error: "Dokumen tidak ditemukan." }, { status: 404 });
+    if (current.document_type !== "QUOTATION" && current.document_type !== "DELIVERY_NOTE") return NextResponse.json({ error: "Hanya nomor quotation atau surat jalan yang dapat diubah." }, { status: 400 });
+    if (current.document_type === "QUOTATION" && access.identity?.role !== "ADMIN") return NextResponse.json({ error: "Hanya Admin yang dapat mengubah nomor quotation yang sudah tersimpan." }, { status: 403 });
+    if (current.document_number.replace(/^\d{1,3}/, "") !== documentNumber.replace(/^\d{3}/, "")) {
+      return NextResponse.json({ error: "Hanya tiga digit awal nomor dokumen yang dapat diubah." }, { status: 400 });
+    }
     const duplicate = await db.prepare(
       "SELECT id FROM sales_documents WHERE document_number = ? COLLATE NOCASE AND id <> ? LIMIT 1"
     ).bind(documentNumber, id).first();
-    if (duplicate) return NextResponse.json({ error: `Nomor quotation ${documentNumber} sudah digunakan.` }, { status: 409 });
+    const documentLabel = current.document_type === "DELIVERY_NOTE" ? "surat jalan" : "quotation";
+    if (duplicate) return NextResponse.json({ error: `Nomor ${documentLabel} ${documentNumber} sudah digunakan.` }, { status: 409 });
     if (current.document_number === documentNumber) return NextResponse.json({ ok: true, document_number: documentNumber });
     const now = new Date().toISOString();
     const salesExists = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sales'").first();
@@ -523,12 +566,20 @@ export async function PATCH(request: NextRequest) {
       db.prepare("UPDATE sales_documents SET document_number = ?, updated_at = ? WHERE id = ?").bind(documentNumber, now, id),
       db.prepare("UPDATE sales_documents SET reference_no = ?, updated_at = ? WHERE reference_no = ?").bind(documentNumber, now, current.document_number),
     ];
-    if (salesExists) statements.push(
+    if (salesExists && current.document_type === "QUOTATION") statements.push(
       db.prepare("UPDATE sales SET quotation_no = ?, updated_at = ? WHERE quotation_no = ?").bind(documentNumber, now, current.document_number)
     );
+    if (salesExists && current.document_type === "DELIVERY_NOTE") {
+      const saleRows = await db.prepare("SELECT id, delivery_no FROM sales WHERE delivery_no LIKE ?")
+        .bind(`%${current.document_number}%`).all<{ id: number; delivery_no: string }>();
+      saleRows.results.forEach((sale) => {
+        const deliveryNo = String(sale.delivery_no || "").split(",").map((value) => value.trim() === current.document_number ? documentNumber : value.trim()).filter(Boolean).join(", ");
+        statements.push(db.prepare("UPDATE sales SET delivery_no = ?, updated_at = ? WHERE id = ?").bind(deliveryNo, now, sale.id));
+      });
+    }
     await db.batch(statements);
     return NextResponse.json({ ok: true, document_number: documentNumber });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Nomor quotation belum berhasil diubah." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Nomor dokumen belum berhasil diubah." }, { status: 500 });
   }
 }
