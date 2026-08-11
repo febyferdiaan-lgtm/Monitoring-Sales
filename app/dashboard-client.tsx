@@ -1600,7 +1600,7 @@ export default function DashboardClient() {
           <div><p className="eyebrow">SUMBER DATA UTAMA</p><h2>{excelTotal} baris Excel tersinkron</h2><p>Unggah file terbaru untuk mengganti sumber utama dan menghitung ulang seluruh Summary.</p>{excelSource && <small className="excel-source-meta">{excelSource.source_file} · diperbarui {new Date(excelSource.imported_at).toLocaleString("id-ID")}</small>}</div>
           <div className="excel-source-actions">
             {canEdit && <button className="secondary-button" onClick={() => fileRef.current?.click()} disabled={saving}><Upload size={16} /> Update Sumber Excel</button>}
-            <button className="primary-button" onClick={downloadUpdatedExcel} disabled={saving}><Download size={16} /> Download Excel + Summary</button>
+            <a className="primary-button" href="/api/excel/download"><Download size={16} /> Download Excel + Summary</a>
           </div>
         </div>
         <article className="panel full-table">
@@ -1707,7 +1707,7 @@ export default function DashboardClient() {
     );
     return (
       <section className="module-stack">
-        <div className="module-banner green"><span className="banner-icon"><FileBarChart /></span><div><p className="eyebrow">LAPORAN PENJUALAN</p><h2>Ringkasan siap diunduh</h2><p>Unduh CSV sesuai filter atau file sumber Excel lengkap dengan Summary terbaru.</p></div><div className="report-download-actions"><button className="secondary-button" onClick={exportCsv}><Download size={17} /> Unduh CSV</button><button className="primary-button" onClick={downloadUpdatedExcel} disabled={saving}><FileSpreadsheet size={17} /> Excel + Summary</button></div></div>
+        <div className="module-banner green"><span className="banner-icon"><FileBarChart /></span><div><p className="eyebrow">LAPORAN PENJUALAN</p><h2>Ringkasan siap diunduh</h2><p>Unduh CSV sesuai filter atau file sumber Excel lengkap dengan Summary terbaru.</p></div><div className="report-download-actions"><button className="secondary-button" onClick={exportCsv}><Download size={17} /> Unduh CSV</button><a className="primary-button" href="/api/excel/download"><FileSpreadsheet size={17} /> Excel + Summary</a></div></div>
         <section className="report-grid">
           <article className="panel report-card"><p>Total transaksi</p><strong>{filtered.length}</strong><span>{customers.length} customer</span></article>
           <article className="panel report-card"><p>Nilai penjualan</p><strong>{compactMoney(pipelineValue)}</strong><span>{winRate}% selesai</span></article>
