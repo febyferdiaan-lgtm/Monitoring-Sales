@@ -700,6 +700,19 @@ export default function DashboardClient() {
     setDirectPoItems((current) => current.map((item) => item.key === key ? { ...item, ...patch } : item));
   };
 
+  const openPoFromQuotationDocument = (document: SalesDocument) => {
+    const sale = sales.find((item) => item.quotation_no === document.document_number);
+    if (!sale) {
+      setNotice("Transaksi quotation belum ditemukan. Sinkronkan data lalu coba kembali.");
+      return;
+    }
+    if (sale.po_no) {
+      setNotice(`Quotation ini sudah menjadi PO ${sale.po_no}.`);
+      return;
+    }
+    openDirectPo(sale);
+  };
+
   const selectPartForDirectPo = (key: string, id: string) => {
     const part = parts.find((item) => item.id === Number(id));
     updateDirectPoLine(key, part ? {
@@ -1674,16 +1687,17 @@ export default function DashboardClient() {
             <table className="data-table documents-table">
               <thead><tr><th>Jenis</th><th>Nomor Dokumen</th><th>Customer / Proyek</th><th>Tanggal</th><th className="number">Total</th><th>Aksi</th></tr></thead>
               <tbody>
-                {documents.map((document) => (
-                  <tr key={document.id}>
+                {documents.map((document) => {
+                  const linkedSale = document.document_type === "QUOTATION" ? sales.find((sale) => sale.quotation_no === document.document_number) : null;
+                  return <tr key={document.id}>
                     <td><span className={`document-kind ${document.document_type.toLowerCase()}`}>{document.document_type === "INVOICE" ? "Invoice" : "Quotation"}</span></td>
-                    <td><b>{document.document_number}</b><small>{document.reference_no ? `Ref: ${document.reference_no}` : document.status}</small></td>
+                    <td>{document.document_type === "QUOTATION" && canEdit && !linkedSale?.po_no ? <button className="quotation-select-link" type="button" onClick={() => openPoFromQuotationDocument(document)}><b>{document.document_number}</b><small>Klik untuk terima PO</small></button> : <><b>{document.document_number}</b><small>{linkedSale?.po_no ? `PO: ${linkedSale.po_no}` : document.reference_no ? `Ref: ${document.reference_no}` : document.status}</small></>}</td>
                     <td><b>{document.customer}</b><small>{document.project || `${document.items.length} item`}</small></td>
                     <td>{document.document_date}</td>
                     <td className="number"><strong>{money.format(document.grand_total)}</strong></td>
-                    <td><div className="row-actions"><button aria-label="Lihat dokumen" onClick={() => setSelectedDocument(document)}><FileText size={15} /></button><button aria-label="Cetak dokumen" onClick={() => printDocument(document)}><Printer size={15} /></button>{canEdit && document.document_type === "QUOTATION" && <button className="convert-button" onClick={() => openDocumentForm("INVOICE", document)}>Jadi Invoice</button>}</div></td>
-                  </tr>
-                ))}
+                    <td><div className="row-actions"><button aria-label="Lihat dokumen" onClick={() => setSelectedDocument(document)}><FileText size={15} /></button><button aria-label="Cetak dokumen" onClick={() => printDocument(document)}><Printer size={15} /></button>{canEdit && document.document_type === "QUOTATION" && !linkedSale?.po_no && <button className="convert-button po-convert" onClick={() => openPoFromQuotationDocument(document)}><ShoppingBag size={13} /> PO Diterima</button>}{linkedSale?.po_no && <span className="po-linked-badge"><CheckCircle2 size={12} /> PO Diterima</span>}{canEdit && document.document_type === "QUOTATION" && <button className="convert-button" onClick={() => openDocumentForm("INVOICE", document)}>Jadi Invoice</button>}</div></td>
+                  </tr>;
+                })}
                 {!documents.length && <tr><td colSpan={6} className="empty-state">Belum ada quotation atau invoice yang dibuat dari aplikasi.</td></tr>}
               </tbody>
             </table>
@@ -1811,16 +1825,19 @@ export default function DashboardClient() {
             <div className="modal-head"><div><p className="eyebrow">{directPoSource ? "QUOTATION MENJADI PO" : "PO CUSTOMER LANGSUNG"}</p><h2 id="direct-po-title">{directPoSource ? "Konfirmasi PO Diterima" : "Tambah PO Baru Tanpa RFQ"}</h2><p>{directPoSource ? `Quotation ${directPoSource.quotation_no} · ${directPoSource.customer}` : "Catat PO customer beserta seluruh detail produk yang ditransaksikan."}</p></div><button className="icon-button" onClick={() => setShowDirectPo(false)} aria-label="Tutup"><X /></button></div>
             <div className="direct-po-note"><ShoppingBag size={20} /><div><b>Transaksi langsung masuk tahap PO Diterima</b><span>{directPoSource ? "Data customer dan produk disalin dari quotation; lengkapi nomor PO customer." : "RFQ dan quotation dikosongkan, sementara detail produk disimpan bersama PO."}</span></div></div>
             <form onSubmit={submitDirectPo} className="document-form direct-po-form">
-              <section className="document-meta">
-                <label>Customer<input required list="direct-po-customers" value={directPoDraft.customer} readOnly={Boolean(directPoSource)} onChange={(event) => setDirectPoDraft({ ...directPoDraft, customer: event.target.value })} placeholder="Pilih atau ketik nama customer" /><datalist id="direct-po-customers">{customers.map((customer) => <option key={customer.name} value={customer.name} />)}</datalist></label>
+              {directPoSource ? <section className="quotation-po-summary">
+                <label className="quotation-po-number">Nomor PO Customer<input autoFocus required value={directPoDraft.po_no} onChange={(event) => setDirectPoDraft({ ...directPoDraft, po_no: event.target.value })} placeholder="Masukkan nomor PO yang diterima" /></label>
+                <dl><div><dt>Quotation</dt><dd>{directPoSource.quotation_no}</dd></div><div><dt>Customer</dt><dd>{directPoDraft.customer}</dd></div><div><dt>Proyek</dt><dd>{directPoDraft.project || "—"}</dd></div><div><dt>Lokasi</dt><dd>{directPoDraft.location || "—"}</dd></div></dl>
+              </section> : <section className="document-meta">
+                <label>Customer<input required list="direct-po-customers" value={directPoDraft.customer} onChange={(event) => setDirectPoDraft({ ...directPoDraft, customer: event.target.value })} placeholder="Pilih atau ketik nama customer" /><datalist id="direct-po-customers">{customers.map((customer) => <option key={customer.name} value={customer.name} />)}</datalist></label>
                 <label>No. PO Customer<input required value={directPoDraft.po_no} onChange={(event) => setDirectPoDraft({ ...directPoDraft, po_no: event.target.value })} placeholder="Nomor PO customer" /></label>
                 <label>Jenis transaksi<select value={directPoDraft.transaction_type} onChange={(event) => setDirectPoDraft({ ...directPoDraft, transaction_type: event.target.value })}><option>Trading Part</option><option>Jasa</option><option>Pengadaan</option><option>Project</option></select></label>
                 <label>Lokasi<input value={directPoDraft.location} onChange={(event) => setDirectPoDraft({ ...directPoDraft, location: event.target.value })} placeholder="Kota / site" /></label>
-                <label className="wide">Proyek / Kebutuhan<input required value={directPoDraft.project} readOnly={Boolean(directPoSource)} onChange={(event) => setDirectPoDraft({ ...directPoDraft, project: event.target.value })} placeholder="Nama proyek atau kebutuhan customer" /></label>
-              </section>
+                <label className="wide">Proyek / Kebutuhan<input required value={directPoDraft.project} onChange={(event) => setDirectPoDraft({ ...directPoDraft, project: event.target.value })} placeholder="Nama proyek atau kebutuhan customer" /></label>
+              </section>}
               <section className="line-items direct-po-items">
-                <div className="line-items-head"><div><p className="eyebrow">DETAIL PRODUK PO</p><h3>Part, jumlah, dan harga transaksi</h3></div><button type="button" className="secondary-button" onClick={() => setDirectPoItems((current) => [...current, newLine()])}><Plus size={15} /> Tambah Baris</button></div>
-                {directPoItems.map((item, index) => (
+                <div className="line-items-head"><div><p className="eyebrow">DETAIL PRODUK PO</p><h3>{directPoSource ? "Data transaksi dari quotation" : "Part, jumlah, dan harga transaksi"}</h3></div>{!directPoSource && <button type="button" className="secondary-button" onClick={() => setDirectPoItems((current) => [...current, newLine()])}><Plus size={15} /> Tambah Baris</button>}</div>
+                {directPoSource ? <div className="table-scroll"><table className="data-table quotation-po-items"><thead><tr><th>Part Number / Deskripsi</th><th className="number">QTY</th><th>Satuan</th><th className="number">Harga</th><th className="number">Jumlah</th></tr></thead><tbody>{directPoItems.map((item) => <tr key={item.key}><td><b>{item.part_number || "—"}</b><small>{item.description}</small></td><td className="number">{item.quantity}</td><td>{item.unit}</td><td className="number">{money.format(item.unit_price)}</td><td className="number"><strong>{money.format(item.quantity * item.unit_price)}</strong></td></tr>)}</tbody></table></div> : directPoItems.map((item, index) => (
                   <div className="line-item" key={item.key}>
                     <span className="line-number">{index + 1}</span>
                     <label className="part-select">Pilih Sparepart<select value={item.spare_part_id ?? ""} onChange={(event) => selectPartForDirectPo(item.key, event.target.value)}><option value="">Item manual</option>{parts.map((part) => <option key={part.id} value={part.id}>{part.part_number} — {part.name}</option>)}</select></label>
@@ -1834,7 +1851,7 @@ export default function DashboardClient() {
                   </div>
                 ))}
               </section>
-              <div className="document-footer-form"><label>Catatan<textarea value={directPoDraft.notes} onChange={(event) => setDirectPoDraft({ ...directPoDraft, notes: event.target.value })} placeholder="PIC, jadwal pengiriman, atau informasi penting lainnya" /></label><div className="document-totals"><div className="grand-total"><span>Total Nilai PO</span><strong>{money.format(directPoTotal)}</strong></div></div></div>
+              <div className={`document-footer-form ${directPoSource ? "quotation-po-footer" : ""}`}>{!directPoSource && <label>Catatan<textarea value={directPoDraft.notes} onChange={(event) => setDirectPoDraft({ ...directPoDraft, notes: event.target.value })} placeholder="PIC, jadwal pengiriman, atau informasi penting lainnya" /></label>}<div className="document-totals"><div className="grand-total"><span>Total Nilai PO</span><strong>{money.format(directPoTotal)}</strong></div></div></div>
               <div className="form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => setShowDirectPo(false)}>Batal</button><button className="primary-button" disabled={saving}><ShoppingBag size={16} /> {saving ? "Menyimpan…" : directPoSource ? "Simpan PO Diterima" : "Simpan PO Baru"}</button></div>
             </form>
           </section>

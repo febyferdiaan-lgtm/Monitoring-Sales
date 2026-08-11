@@ -288,6 +288,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .row-actions > button:hover { border-color: var(--red); color: var(--red); }
 .row-actions > button.danger:hover { background: var(--red-soft); }
 .row-actions > button.convert-button { min-width: 82px; color: var(--red); border-color: #f3cdd0; }
+.row-actions > button.convert-button.po-convert { border-color: #d9d2f3; background: #f6f2ff; color: var(--purple); }
+.quotation-select-link { display: grid; gap: 2px; padding: 0; border: 0; background: transparent; color: var(--purple); text-align: left; cursor: pointer; }
+.quotation-select-link b { text-decoration: underline; text-underline-offset: 2px; }
+.quotation-select-link small { color: var(--purple); }
+.po-linked-badge { display: inline-flex; align-items: center; gap: 4px; padding: 6px 8px; border-radius: 8px; background: #e8f6ec; color: var(--green); font-size: 8px; font-weight: 800; white-space: nowrap; }
 .document-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .document-action-card { min-height: 188px; padding: 22px; display: grid; grid-template-columns: 58px 1fr; align-items: start; gap: 17px; border: 1px solid var(--border); border-radius: 18px; background: #fff; box-shadow: var(--shadow); overflow: hidden; position: relative; }
 .document-action-card > span { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 16px; background: #e7f0ff; color: var(--blue); }
@@ -344,6 +349,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .direct-po-note span { color: var(--secondary); font-size: 9px; }
 .direct-po-form { padding-top: 18px; }
 .direct-po-items { margin-top: 0; }
+.quotation-po-summary { display: grid; grid-template-columns: minmax(260px, .9fr) 1.6fr; gap: 16px; align-items: end; }
+.quotation-po-number { display: flex; flex-direction: column; gap: 7px; color: var(--secondary); font-size: 10px; font-weight: 800; }
+.quotation-po-number input { width: 100%; padding: 13px; border: 2px solid var(--purple); border-radius: 10px; outline: 0; font-size: 14px; }
+.quotation-po-number input:focus { box-shadow: 0 0 0 3px #eee8ff; }
+.quotation-po-summary dl { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.quotation-po-summary dl div { min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--subtle); }
+.quotation-po-summary dt { color: var(--muted); font-size: 8px; font-weight: 800; text-transform: uppercase; }
+.quotation-po-summary dd { margin: 4px 0 0; color: var(--charcoal); font-size: 10px; font-weight: 700; overflow-wrap: anywhere; }
+.quotation-po-items { min-width: 720px; }
+.document-footer-form.quotation-po-footer { grid-template-columns: 1fr; }
+.quotation-po-footer .document-totals { width: min(360px, 100%); margin-left: auto; }
 .excel-detail-grid { padding-top: 18px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .excel-detail-grid > div { min-width: 0; min-height: 70px; padding: 11px; display: flex; flex-direction: column; gap: 7px; border-radius: 10px; background: var(--subtle); }
 .excel-detail-grid span { color: var(--muted); font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
@@ -474,6 +490,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .welcome-strip { align-items: flex-start; }
   .document-actions { grid-template-columns: 1fr; }
   .document-meta { grid-template-columns: 1fr 1fr; }
+  .quotation-po-summary { grid-template-columns: 1fr; }
   .document-preview-modal { overflow-x: auto; }
   .access-role-grid { grid-template-columns: 1fr; }
   .access-layout { grid-template-columns: 1fr; }
@@ -529,6 +546,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .document-action-card > button { grid-column: 1 / -1; width: 100%; }
   .document-meta { grid-template-columns: 1fr; }
   .document-meta .wide { grid-column: auto; }
+  .quotation-po-summary dl { grid-template-columns: 1fr; }
   .line-items { padding: 12px; overflow-x: auto; }
   .line-item { min-width: 970px; }
   .document-footer-form { grid-template-columns: 1fr; }
