@@ -176,7 +176,38 @@ export async function POST(request: NextRequest) {
     if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
     const body = await request.json() as { action?: string; record?: InputRecord; records?: InputRecord[] };
-    const records = body.action === "import" ? body.records ?? [] : body.record ? [body.record] : [];
+    let records = body.action === "import" ? body.records ?? [] : body.record ? [body.record] : [];
+    if (body.action === "add_po") {
+      const record = body.record ?? {};
+      const customer = String(record.customer || "").trim();
+      const project = String(record.project || "").trim();
+      const poNo = String(record.po_no || "").trim();
+      const poAmount = Number(record.invoice_amount || 0);
+      if (!customer || !project || !poNo || !Number.isFinite(poAmount) || poAmount < 0) {
+        return NextResponse.json({ error: "Customer, nomor PO, proyek, dan nilai PO wajib valid." }, { status: 400 });
+      }
+      if (isSupabaseConfigured()) {
+        const supabase = await createSupabaseServerClient();
+        const { data, error } = await supabase.from("sales").select("id").eq("po_no", poNo).limit(1);
+        if (error) throw error;
+        if (data?.length) return NextResponse.json({ error: `Nomor PO ${poNo} sudah terdaftar.` }, { status: 409 });
+      } else {
+        const existing = await (await getDb()).prepare("SELECT id FROM sales WHERE po_no = ? COLLATE NOCASE LIMIT 1").bind(poNo).first();
+        if (existing) return NextResponse.json({ error: `Nomor PO ${poNo} sudah terdaftar.` }, { status: 409 });
+      }
+      records = [{
+        ...record,
+        customer,
+        project,
+        po_no: poNo,
+        rfq_no: "",
+        quotation_no: "",
+        amount_paid: 0,
+        payment_status: "OPEN",
+        transaction_status: "PO Diterima",
+        notes: String(record.notes || "").trim() || "PO masuk langsung tanpa RFQ.",
+      }];
+    }
     if (!records.length || records.length > 5000) return NextResponse.json({ error: "Invalid records" }, { status: 400 });
     await upsertRecords(records);
     return NextResponse.json({ ok: true, imported: records.length });

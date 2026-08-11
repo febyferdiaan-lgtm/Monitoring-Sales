@@ -397,6 +397,7 @@ export default function DashboardClient() {
   const [stageFilter, setStageFilter] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [showDirectPo, setShowDirectPo] = useState(false);
   const [showPart, setShowPart] = useState(false);
   const [showDocument, setShowDocument] = useState(false);
   const [selected, setSelected] = useState<Sale | null>(null);
@@ -405,6 +406,7 @@ export default function DashboardClient() {
   const [editSaleDraft, setEditSaleDraft] = useState<DraftSale>(emptyDraft);
   const [selectedDocument, setSelectedDocument] = useState<SalesDocument | null>(null);
   const [draft, setDraft] = useState<DraftSale>(emptyDraft);
+  const [directPoDraft, setDirectPoDraft] = useState<DraftSale>(emptyDraft);
   const [parts, setParts] = useState<SparePart[]>([]);
   const [documents, setDocuments] = useState<SalesDocument[]>([]);
   const [partDraft, setPartDraft] = useState<DraftPart>(emptyPart);
@@ -665,6 +667,33 @@ export default function DashboardClient() {
   const openAdd = () => {
     setDraft(emptyDraft);
     setShowAdd(true);
+  };
+
+  const openDirectPo = () => {
+    setDirectPoDraft({ ...emptyDraft, rfq_no: "", quotation_no: "", transaction_status: "PO Diterima" });
+    setShowDirectPo(true);
+  };
+
+  const submitDirectPo = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const response = await fetch("/api/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add_po", record: directPoDraft }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "PO belum berhasil disimpan.");
+      setShowDirectPo(false);
+      setStageFilter("PO");
+      setNotice(`PO ${directPoDraft.po_no.trim()} berhasil ditambahkan tanpa RFQ.`);
+      await loadSales();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "PO belum berhasil disimpan.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const submitAdd = async (event: FormEvent) => {
@@ -1384,7 +1413,7 @@ export default function DashboardClient() {
     if (activeNav === "Dashboard") return renderDashboard();
     if (activeNav === "Pipeline") return (
       <section className="module-stack">
-        <div className="module-banner"><span className="banner-icon"><TrendingUp /></span><div><p className="eyebrow">PROSES PENJUALAN</p><h2>Lihat posisi setiap pekerjaan</h2><p>Pilih salah satu tahap untuk melihat pekerjaan yang sedang berada pada proses tersebut.</p></div></div>
+        <div className="module-banner"><span className="banner-icon"><TrendingUp /></span><div><p className="eyebrow">PROSES PENJUALAN</p><h2>Lihat posisi setiap pekerjaan</h2><p>Pilih salah satu tahap untuk melihat pekerjaan yang sedang berada pada proses tersebut.</p></div>{canEdit && <button className="primary-button" type="button" onClick={openDirectPo}><ShoppingBag size={17} /> Tambah PO Tanpa RFQ</button>}</div>
         <div className="panel pipeline-panel">
           <div className="section-head"><div><p className="eyebrow">RFQ SAMPAI LUNAS</p><h2>Alur Penjualan</h2></div></div>
           <div className="pipeline-flow">
@@ -1707,6 +1736,25 @@ export default function DashboardClient() {
               <label>Jatuh Tempo<input type="date" value={draft.due_date} onChange={(e) => setDraft({ ...draft, due_date: e.target.value })} /></label>
               <label className="wide">Catatan<textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="Catatan follow up, PIC, atau informasi penting" /></label>
               <div className="form-actions wide"><button type="button" className="secondary-button" onClick={() => setShowAdd(false)}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Menyimpan…" : "Simpan Data"}</button></div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {showDirectPo && (
+        <div className="modal-backdrop" onMouseDown={() => !saving && setShowDirectPo(false)}>
+          <section className="modal direct-po-modal" role="dialog" aria-modal="true" aria-labelledby="direct-po-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head"><div><p className="eyebrow">PO CUSTOMER LANGSUNG</p><h2 id="direct-po-title">Tambah PO Baru Tanpa RFQ</h2><p>Gunakan form ini ketika customer mengirim PO tanpa proses RFQ dan quotation sebelumnya.</p></div><button className="icon-button" onClick={() => setShowDirectPo(false)} aria-label="Tutup"><X /></button></div>
+            <div className="direct-po-note"><ShoppingBag size={20} /><div><b>Transaksi langsung masuk tahap PO Diterima</b><span>Nomor RFQ dan quotation otomatis dikosongkan.</span></div></div>
+            <form onSubmit={submitDirectPo} className="sales-form">
+              <label className="wide">Customer<input required list="direct-po-customers" value={directPoDraft.customer} onChange={(event) => setDirectPoDraft({ ...directPoDraft, customer: event.target.value })} placeholder="Pilih atau ketik nama customer" /><datalist id="direct-po-customers">{customers.map((customer) => <option key={customer.name} value={customer.name} />)}</datalist></label>
+              <label>No. PO<input required value={directPoDraft.po_no} onChange={(event) => setDirectPoDraft({ ...directPoDraft, po_no: event.target.value })} placeholder="Nomor PO customer" /></label>
+              <label>Jenis transaksi<select value={directPoDraft.transaction_type} onChange={(event) => setDirectPoDraft({ ...directPoDraft, transaction_type: event.target.value })}><option>Trading Part</option><option>Jasa</option><option>Pengadaan</option><option>Project</option></select></label>
+              <label className="wide">Proyek / Kebutuhan<input required value={directPoDraft.project} onChange={(event) => setDirectPoDraft({ ...directPoDraft, project: event.target.value })} placeholder="Nama proyek atau kebutuhan customer" /></label>
+              <label>Lokasi<input value={directPoDraft.location} onChange={(event) => setDirectPoDraft({ ...directPoDraft, location: event.target.value })} placeholder="Kota / site" /></label>
+              <label>Nilai PO<input required type="number" min="0" step="0.01" value={directPoDraft.invoice_amount} onChange={(event) => setDirectPoDraft({ ...directPoDraft, invoice_amount: Number(event.target.value) })} /></label>
+              <label className="wide">Catatan<textarea value={directPoDraft.notes} onChange={(event) => setDirectPoDraft({ ...directPoDraft, notes: event.target.value })} placeholder="PIC, jadwal pengiriman, atau informasi penting lainnya" /></label>
+              <div className="form-actions wide"><button type="button" className="secondary-button" disabled={saving} onClick={() => setShowDirectPo(false)}>Batal</button><button className="primary-button" disabled={saving}><ShoppingBag size={16} /> {saving ? "Menyimpan…" : "Simpan PO Baru"}</button></div>
             </form>
           </section>
         </div>
