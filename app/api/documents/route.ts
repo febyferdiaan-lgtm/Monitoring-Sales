@@ -13,7 +13,7 @@ type DocumentItem = {
 };
 
 type DocumentInput = {
-  type?: "QUOTATION" | "INVOICE";
+  type?: "QUOTATION" | "INVOICE" | "DELIVERY_NOTE";
   quotation_sequence?: string;
   customer?: string;
   customer_address?: string;
@@ -87,7 +87,33 @@ const sequenceFromNumber = (value: unknown, year: number) => {
   return match ? Number(match[1]) : 0;
 };
 
-async function nextDocumentNumber(type: "QUOTATION" | "INVOICE", date: string, requestedSequence = "") {
+type DocumentType = "QUOTATION" | "INVOICE" | "DELIVERY_NOTE";
+
+const deliveryItemKey = (item: DocumentItem) => {
+  const sparePartId = Number(item.spare_part_id || 0);
+  if (sparePartId) return `part:${sparePartId}`;
+  const partNumber = String(item.part_number || "").trim().toLowerCase();
+  if (partNumber) return `number:${partNumber}`;
+  return `description:${String(item.description || "").trim().toLowerCase()}|${String(item.unit || "Pcs").trim().toLowerCase()}`;
+};
+
+const validateDeliveryQuantities = (orderedItems: DocumentItem[], deliveredItems: DocumentItem[], requestedItems: DocumentItem[]) => {
+  const ordered = new Map<string, number>();
+  const delivered = new Map<string, number>();
+  orderedItems.forEach((item) => ordered.set(deliveryItemKey(item), (ordered.get(deliveryItemKey(item)) ?? 0) + Number(item.quantity || 0)));
+  deliveredItems.forEach((item) => delivered.set(deliveryItemKey(item), (delivered.get(deliveryItemKey(item)) ?? 0) + Number(item.quantity || 0)));
+  for (const item of requestedItems) {
+    const key = deliveryItemKey(item);
+    const remaining = Math.max(0, (ordered.get(key) ?? 0) - (delivered.get(key) ?? 0));
+    const quantity = Number(item.quantity || 0);
+    if (!ordered.has(key)) throw new Error(`Item ${String(item.part_number || item.description || "pengiriman")} tidak terdapat pada PO.`);
+    if (quantity > remaining + 0.0001) throw new Error(`Jumlah kirim ${String(item.part_number || item.description || "item")} melebihi sisa PO (${remaining}).`);
+    delivered.set(key, (delivered.get(key) ?? 0) + quantity);
+  }
+  return Array.from(ordered.entries()).every(([key, quantity]) => (delivered.get(key) ?? 0) >= quantity - 0.0001);
+};
+
+async function nextDocumentNumber(type: DocumentType, date: string, requestedSequence = "") {
   const parsed = new Date(`${date}T00:00:00`);
   const year = Number.isNaN(parsed.valueOf()) ? new Date().getFullYear() : parsed.getFullYear();
   const month = Number.isNaN(parsed.valueOf()) ? new Date().getMonth() : parsed.getMonth();
@@ -131,7 +157,8 @@ async function nextDocumentNumber(type: "QUOTATION" | "INVOICE", date: string, r
   }
   if (nextSequence < 1 || nextSequence > 999) throw new Error("Nomor urut quotation harus berada di antara 001 dan 999.");
   const sequence = String(nextSequence).padStart(3, "0");
-  return `${sequence}/MDA-${type === "INVOICE" ? "INV" : "QUOT"}/${romanMonths[month]}/${year}`;
+  const suffix = type === "INVOICE" ? "MDA-INV" : type === "DELIVERY_NOTE" ? "SJ-MDA" : "MDA-QUOT";
+  return `${sequence}/${suffix}/${romanMonths[month]}/${year}`;
 }
 
 export async function GET(request: NextRequest) {
@@ -176,10 +203,14 @@ export async function POST(request: NextRequest) {
     if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
     const body = await request.json() as DocumentInput;
-    const type = body.type === "INVOICE" ? "INVOICE" : "QUOTATION";
+    const type: DocumentType = body.type === "INVOICE" ? "INVOICE" : body.type === "DELIVERY_NOTE" ? "DELIVERY_NOTE" : "QUOTATION";
     const customer = String(body.customer || "").trim();
     const items = (body.items ?? []).filter((item) => String(item.description || "").trim() && Number(item.quantity || 0) > 0);
     if (!customer || !items.length) return NextResponse.json({ error: "Customer and items are required" }, { status: 400 });
+    const referenceNo = String(body.reference_no || "").trim();
+    if (type === "DELIVERY_NOTE" && !referenceNo) {
+      return NextResponse.json({ error: "Nomor PO wajib dipilih untuk membuat surat jalan." }, { status: 400 });
+    }
 
     const documentDate = String(body.document_date || new Date().toISOString().slice(0, 10));
     const number = await nextDocumentNumber(type, documentDate, type === "QUOTATION" ? String(body.quotation_sequence || "") : "");
@@ -195,8 +226,69 @@ export async function POST(request: NextRequest) {
       ).bind(number).first();
       if (duplicate) return NextResponse.json({ error: `Nomor dokumen ${number} sudah digunakan. Pilih tiga digit lain.` }, { status: 409 });
     }
-    const taxPercent = Math.max(0, Number(body.tax_percent ?? 11));
-    const subtotal = items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
+    let deliveryComplete = false;
+    let linkedSale: { id: number; quotation_no?: string; delivery_no?: string } | null = null;
+    if (type === "DELIVERY_NOTE") {
+      if (isSupabaseConfigured()) {
+        const supabase = await createSupabaseServerClient();
+        const [{ data: poDocuments, error: poError }, { data: saleRows, error: saleError }, { data: deliveryDocuments, error: deliveryError }] = await Promise.all([
+          supabase.from("sales_documents").select("id").eq("document_type", "PURCHASE_ORDER").eq("document_number", referenceNo).limit(1),
+          supabase.from("sales").select("id,quotation_no,delivery_no").eq("po_no", referenceNo).limit(1),
+          supabase.from("sales_documents").select("id").eq("document_type", "DELIVERY_NOTE").eq("reference_no", referenceNo),
+        ]);
+        if (poError) throw poError;
+        if (saleError) throw saleError;
+        if (deliveryError) throw deliveryError;
+        linkedSale = saleRows?.[0] ? { id: Number(saleRows[0].id), quotation_no: saleRows[0].quotation_no, delivery_no: saleRows[0].delivery_no } : null;
+        if (!linkedSale) return NextResponse.json({ error: `PO ${referenceNo} tidak ditemukan atau belum terhubung ke transaksi.` }, { status: 404 });
+        let sourceDocumentId = Number(poDocuments?.[0]?.id || 0);
+        if (!sourceDocumentId && linkedSale.quotation_no) {
+          const { data: quotationDocuments, error: quotationError } = await supabase.from("sales_documents")
+            .select("id").eq("document_type", "QUOTATION").eq("document_number", linkedSale.quotation_no).limit(1);
+          if (quotationError) throw quotationError;
+          sourceDocumentId = Number(quotationDocuments?.[0]?.id || 0);
+        }
+        if (!sourceDocumentId) return NextResponse.json({ error: `Detail item PO ${referenceNo} belum tersedia.` }, { status: 404 });
+        const deliveryIds = (deliveryDocuments ?? []).map((document) => Number(document.id));
+        const [{ data: orderedItems, error: orderedError }, deliveredResult] = await Promise.all([
+          supabase.from("sales_document_items").select("spare_part_id,part_number,description,quantity,unit").eq("document_id", sourceDocumentId),
+          deliveryIds.length
+            ? supabase.from("sales_document_items").select("spare_part_id,part_number,description,quantity,unit").in("document_id", deliveryIds)
+            : Promise.resolve({ data: [], error: null }),
+        ]);
+        if (orderedError) throw orderedError;
+        if (deliveredResult.error) throw deliveredResult.error;
+        deliveryComplete = validateDeliveryQuantities(orderedItems ?? [], deliveredResult.data ?? [], items);
+      } else {
+        const db = await getDb();
+        let sourceDocument = await db.prepare(
+          "SELECT id FROM sales_documents WHERE document_type = 'PURCHASE_ORDER' AND document_number = ? COLLATE NOCASE LIMIT 1"
+        ).bind(referenceNo).first<{ id: number }>();
+        linkedSale = await db.prepare(
+          "SELECT id, quotation_no, delivery_no FROM sales WHERE po_no = ? COLLATE NOCASE LIMIT 1"
+        ).bind(referenceNo).first<{ id: number; quotation_no: string; delivery_no: string }>();
+        if (!linkedSale) return NextResponse.json({ error: `PO ${referenceNo} tidak ditemukan atau belum terhubung ke transaksi.` }, { status: 404 });
+        if (!sourceDocument && linkedSale.quotation_no) {
+          sourceDocument = await db.prepare(
+            "SELECT id FROM sales_documents WHERE document_type = 'QUOTATION' AND document_number = ? COLLATE NOCASE LIMIT 1"
+          ).bind(linkedSale.quotation_no).first<{ id: number }>();
+        }
+        if (!sourceDocument) return NextResponse.json({ error: `Detail item PO ${referenceNo} belum tersedia.` }, { status: 404 });
+        const orderedItems = await db.prepare(
+          "SELECT spare_part_id, part_number, description, quantity, unit FROM sales_document_items WHERE document_id = ?"
+        ).bind(sourceDocument.id).all<DocumentItem>();
+        const deliveredItems = await db.prepare(
+          `SELECT item.spare_part_id, item.part_number, item.description, item.quantity, item.unit
+           FROM sales_document_items item
+           INNER JOIN sales_documents document ON document.id = item.document_id
+           WHERE document.document_type = 'DELIVERY_NOTE' AND document.reference_no = ? COLLATE NOCASE`
+        ).bind(referenceNo).all<DocumentItem>();
+        deliveryComplete = validateDeliveryQuantities(orderedItems.results, deliveredItems.results, items);
+      }
+    }
+
+    const taxPercent = type === "DELIVERY_NOTE" ? 0 : Math.max(0, Number(body.tax_percent ?? 11));
+    const subtotal = type === "DELIVERY_NOTE" ? 0 : items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
     const taxAmount = subtotal * taxPercent / 100;
     const grandTotal = subtotal + taxAmount;
     const now = new Date().toISOString();
@@ -205,25 +297,66 @@ export async function POST(request: NextRequest) {
       const { data: inserted, error: documentError } = await supabase.from("sales_documents").insert({
         document_type: type, document_number: number, customer,
         customer_address: String(body.customer_address || ""), customer_pic: String(body.customer_pic || ""),
-        project: String(body.project || ""), reference_no: String(body.reference_no || ""),
+        project: String(body.project || ""), reference_no: referenceNo,
         document_date: documentDate, due_date: String(body.due_date || ""), subtotal,
         tax_percent: taxPercent, tax_amount: taxAmount, grand_total: grandTotal,
-        notes: String(body.notes || ""), status: "DRAFT", created_at: now, updated_at: now,
+        notes: String(body.notes || ""), status: type === "DELIVERY_NOTE" ? (deliveryComplete ? "COMPLETE" : "PARTIAL") : "DRAFT", created_at: now, updated_at: now,
       }).select("id").single();
       if (documentError || !inserted) throw documentError ?? new Error("Dokumen gagal dibuat.");
       const documentId = Number(inserted.id);
       const { error: itemError } = await supabase.from("sales_document_items").insert(items.map((item) => ({
         document_id: documentId, spare_part_id: item.spare_part_id ? Number(item.spare_part_id) : null,
         part_number: String(item.part_number || ""), description: String(item.description || ""),
-        quantity: Number(item.quantity || 0), unit: String(item.unit || "Pcs"), unit_price: Number(item.unit_price || 0),
-        line_total: Number(item.quantity || 0) * Number(item.unit_price || 0),
+        quantity: Number(item.quantity || 0), unit: String(item.unit || "Pcs"), unit_price: type === "DELIVERY_NOTE" ? 0 : Number(item.unit_price || 0),
+        line_total: type === "DELIVERY_NOTE" ? 0 : Number(item.quantity || 0) * Number(item.unit_price || 0),
       })));
       if (itemError) throw itemError;
+      if (type === "DELIVERY_NOTE" && linkedSale) {
+        const deliveryNumbers = [...new Set([...(String(linkedSale.delivery_no || "").split(",").map((value) => value.trim()).filter(Boolean)), number])];
+        const { error: deliverySaleError } = await supabase.from("sales").update({
+          delivery_no: deliveryNumbers.join(", "),
+          transaction_status: deliveryComplete ? "Terkirim - Siap Invoice" : "Dikirim Partial",
+          updated_at: now,
+        }).eq("id", linkedSale.id);
+        if (deliverySaleError) throw deliverySaleError;
+        return NextResponse.json({ ok: true, id: documentId, document_number: number, delivery_complete: deliveryComplete });
+      }
+
+      if (type === "INVOICE") {
+        let invoiceSaleId = 0;
+        const byQuotation = await supabase.from("sales").select("id").eq("quotation_no", referenceNo).limit(1);
+        if (byQuotation.error) throw byQuotation.error;
+        invoiceSaleId = Number(byQuotation.data?.[0]?.id || 0);
+        if (!invoiceSaleId) {
+          const byPo = await supabase.from("sales").select("id").eq("po_no", referenceNo).limit(1);
+          if (byPo.error) throw byPo.error;
+          invoiceSaleId = Number(byPo.data?.[0]?.id || 0);
+        }
+        if (!invoiceSaleId) {
+          const referenceDocument = await supabase.from("sales_documents").select("reference_no").eq("document_number", referenceNo).limit(1);
+          if (referenceDocument.error) throw referenceDocument.error;
+          const referencedPo = String(referenceDocument.data?.[0]?.reference_no || "");
+          if (referencedPo) {
+            const byDelivery = await supabase.from("sales").select("id").eq("po_no", referencedPo).limit(1);
+            if (byDelivery.error) throw byDelivery.error;
+            invoiceSaleId = Number(byDelivery.data?.[0]?.id || 0);
+          }
+        }
+        if (invoiceSaleId) {
+          const { error: invoiceSaleError } = await supabase.from("sales").update({
+            invoice_no: number, invoice_amount: grandTotal, due_date: String(body.due_date || ""),
+            payment_status: "OPEN", transaction_status: "Done Invoice",
+            notes: "Invoice dibuat dari dokumen pengiriman.", updated_at: now,
+          }).eq("id", invoiceSaleId);
+          if (invoiceSaleError) throw invoiceSaleError;
+          return NextResponse.json({ ok: true, id: documentId, document_number: number });
+        }
+      }
       const sourceKey = `document-${type.toLowerCase()}-${documentId}`;
       const { error: saleError } = await supabase.from("sales").upsert({
         source_key: sourceKey, customer, location: "", transaction_type: "Trading Part",
         project: String(body.project || items[0]?.description || ""), rfq_no: "",
-        quotation_no: type === "QUOTATION" ? number : String(body.reference_no || ""),
+        quotation_no: type === "QUOTATION" ? number : referenceNo,
         po_no: "", delivery_no: "", invoice_no: type === "INVOICE" ? number : "",
         invoice_amount: grandTotal, amount_paid: 0, due_date: type === "INVOICE" ? String(body.due_date || "") : "",
         payment_date: "", payment_status: "OPEN", transaction_status: "Open",
@@ -239,7 +372,7 @@ export async function POST(request: NextRequest) {
         document_type, document_number, customer, customer_address, customer_pic, project,
         reference_no, document_date, due_date, subtotal, tax_percent, tax_amount, grand_total,
         notes, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       type,
       number,
@@ -247,7 +380,7 @@ export async function POST(request: NextRequest) {
       String(body.customer_address || ""),
       String(body.customer_pic || ""),
       String(body.project || ""),
-      String(body.reference_no || ""),
+      referenceNo,
       documentDate,
       String(body.due_date || ""),
       subtotal,
@@ -255,6 +388,7 @@ export async function POST(request: NextRequest) {
       taxAmount,
       grandTotal,
       String(body.notes || ""),
+      type === "DELIVERY_NOTE" ? (deliveryComplete ? "COMPLETE" : "PARTIAL") : "DRAFT",
       now,
       now
     ).run();
@@ -271,12 +405,40 @@ export async function POST(request: NextRequest) {
       String(item.description || ""),
       Number(item.quantity || 0),
       String(item.unit || "Pcs"),
-      Number(item.unit_price || 0),
-      Number(item.quantity || 0) * Number(item.unit_price || 0)
+      type === "DELIVERY_NOTE" ? 0 : Number(item.unit_price || 0),
+      type === "DELIVERY_NOTE" ? 0 : Number(item.quantity || 0) * Number(item.unit_price || 0)
     )));
 
     const salesExists = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sales'").first();
     if (salesExists) {
+      if (type === "DELIVERY_NOTE" && linkedSale) {
+        const deliveryNumbers = [...new Set([...(String(linkedSale.delivery_no || "").split(",").map((value) => value.trim()).filter(Boolean)), number])];
+        await db.prepare(
+          "UPDATE sales SET delivery_no = ?, transaction_status = ?, updated_at = ? WHERE id = ?"
+        ).bind(deliveryNumbers.join(", "), deliveryComplete ? "Terkirim - Siap Invoice" : "Dikirim Partial", now, linkedSale.id).run();
+        return NextResponse.json({ ok: true, id: documentId, document_number: number, delivery_complete: deliveryComplete });
+      }
+
+      if (type === "INVOICE") {
+        let invoiceSale = await db.prepare(
+          "SELECT id FROM sales WHERE quotation_no = ? COLLATE NOCASE OR po_no = ? COLLATE NOCASE LIMIT 1"
+        ).bind(referenceNo, referenceNo).first<{ id: number }>();
+        if (!invoiceSale) {
+          const referenceDocument = await db.prepare(
+            "SELECT reference_no FROM sales_documents WHERE document_number = ? COLLATE NOCASE LIMIT 1"
+          ).bind(referenceNo).first<{ reference_no: string }>();
+          if (referenceDocument?.reference_no) {
+            invoiceSale = await db.prepare("SELECT id FROM sales WHERE po_no = ? COLLATE NOCASE LIMIT 1")
+              .bind(referenceDocument.reference_no).first<{ id: number }>();
+          }
+        }
+        if (invoiceSale) {
+          await db.prepare(
+            "UPDATE sales SET invoice_no = ?, invoice_amount = ?, due_date = ?, payment_status = 'OPEN', transaction_status = 'Done Invoice', notes = ?, updated_at = ? WHERE id = ?"
+          ).bind(number, grandTotal, String(body.due_date || ""), "Invoice dibuat dari dokumen pengiriman.", now, invoiceSale.id).run();
+          return NextResponse.json({ ok: true, id: documentId, document_number: number });
+        }
+      }
       const sourceKey = `document-${type.toLowerCase()}-${documentId}`;
       await db.prepare(
         `INSERT INTO sales (
@@ -291,7 +453,7 @@ export async function POST(request: NextRequest) {
         sourceKey,
         customer,
         String(body.project || items[0]?.description || ""),
-        type === "QUOTATION" ? number : String(body.reference_no || ""),
+        type === "QUOTATION" ? number : referenceNo,
         type === "INVOICE" ? number : "",
         grandTotal,
         type === "INVOICE" ? String(body.due_date || "") : "",
