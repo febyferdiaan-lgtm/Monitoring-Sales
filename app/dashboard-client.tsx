@@ -724,7 +724,17 @@ export default function DashboardClient() {
     } : { spare_part_id: null, part_number: "", description: "", unit: "Pcs", unit_price: 0 });
   };
 
-  const directPoTotal = directPoItems.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
+  const directPoQuotation = directPoSource
+    ? documents.find((document) => document.document_type === "QUOTATION" && document.document_number === directPoSource.quotation_no)
+    : null;
+  const directPoSubtotal = directPoItems.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
+  const directPoTaxPercent = directPoSource ? Number(directPoQuotation?.tax_percent ?? 11) : 0;
+  const directPoTaxAmount = directPoSource
+    ? Number(directPoQuotation?.tax_amount ?? directPoSubtotal * directPoTaxPercent / 100)
+    : 0;
+  const directPoTotal = directPoSource
+    ? Number(directPoQuotation?.grand_total ?? directPoSubtotal + directPoTaxAmount)
+    : directPoSubtotal;
 
   const submitDirectPo = async (event: FormEvent) => {
     event.preventDefault();
@@ -1851,7 +1861,7 @@ export default function DashboardClient() {
                   </div>
                 ))}
               </section>
-              <div className={`document-footer-form ${directPoSource ? "quotation-po-footer" : ""}`}>{!directPoSource && <label>Catatan<textarea value={directPoDraft.notes} onChange={(event) => setDirectPoDraft({ ...directPoDraft, notes: event.target.value })} placeholder="PIC, jadwal pengiriman, atau informasi penting lainnya" /></label>}<div className="document-totals"><div className="grand-total"><span>Total Nilai PO</span><strong>{money.format(directPoTotal)}</strong></div></div></div>
+              <div className={`document-footer-form ${directPoSource ? "quotation-po-footer" : ""}`}>{!directPoSource && <label>Catatan<textarea value={directPoDraft.notes} onChange={(event) => setDirectPoDraft({ ...directPoDraft, notes: event.target.value })} placeholder="PIC, jadwal pengiriman, atau informasi penting lainnya" /></label>}<div className="document-totals">{directPoSource && <><div><span>Subtotal Quotation</span><strong>{money.format(directPoSubtotal)}</strong></div><div><span>PPN {directPoTaxPercent}%</span><strong>{money.format(directPoTaxAmount)}</strong></div></>}<div className="grand-total"><span>Total Nilai PO</span><strong>{money.format(directPoTotal)}</strong></div></div></div>
               <div className="form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => setShowDirectPo(false)}>Batal</button><button className="primary-button" disabled={saving}><ShoppingBag size={16} /> {saving ? "Menyimpan…" : directPoSource ? "Simpan PO Diterima" : "Simpan PO Baru"}</button></div>
             </form>
           </section>

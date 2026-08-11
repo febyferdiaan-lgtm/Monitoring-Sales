@@ -121,12 +121,33 @@ async function ensureDatabase() {
   ]);
   const count = await db.prepare("SELECT COUNT(*) AS total FROM sales").first<{ total: number }>();
   if (Number(count?.total ?? 0) === 0) await upsertRecords(seed);
+  await db.prepare(
+    `UPDATE sales
+     SET invoice_amount = (
+       SELECT quotation.grand_total
+       FROM sales_documents quotation
+       WHERE quotation.document_type = 'QUOTATION'
+         AND quotation.document_number = sales.quotation_no
+       LIMIT 1
+     ), updated_at = ?
+     WHERE po_no <> '' AND quotation_no <> '' AND invoice_no = ''
+       AND EXISTS (
+         SELECT 1 FROM sales_documents quotation
+         WHERE quotation.document_type = 'QUOTATION'
+           AND quotation.document_number = sales.quotation_no
+           AND ABS(quotation.grand_total - sales.invoice_amount) > 0.01
+       )`
+  ).bind(new Date().toISOString()).run();
 }
 
 async function savePoDocument(poNo: string, record: InputRecord, inputItems: PoItem[]) {
   const items = inputItems.filter((item) => String(item.description || "").trim() && Number(item.quantity || 0) > 0);
   if (!items.length) throw new Error("Tambahkan minimal satu produk pada PO.");
   const subtotal = items.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.unit_price || 0)), 0);
+  const requestedTotal = Number(record.invoice_amount);
+  const grandTotal = Number.isFinite(requestedTotal) && requestedTotal >= 0 ? requestedTotal : subtotal;
+  const taxAmount = Math.max(0, grandTotal - subtotal);
+  const taxPercent = subtotal > 0 ? taxAmount / subtotal * 100 : 0;
   const now = new Date().toISOString();
   const document = {
     document_type: "PURCHASE_ORDER",
@@ -139,9 +160,9 @@ async function savePoDocument(poNo: string, record: InputRecord, inputItems: PoI
     document_date: now.slice(0, 10),
     due_date: "",
     subtotal,
-    tax_percent: 0,
-    tax_amount: 0,
-    grand_total: subtotal,
+    tax_percent: taxPercent,
+    tax_amount: taxAmount,
+    grand_total: grandTotal,
     notes: String(record.notes || "").trim(),
     status: "RECEIVED",
     created_at: now,
@@ -174,13 +195,14 @@ async function savePoDocument(poNo: string, record: InputRecord, inputItems: PoI
       document_type, document_number, customer, customer_address, customer_pic, project,
       reference_no, document_date, due_date, subtotal, tax_percent, tax_amount, grand_total,
       notes, status, created_at, updated_at
-    ) VALUES (?, ?, ?, '', '', ?, ?, ?, '', ?, 0, 0, ?, ?, 'RECEIVED', ?, ?)
+    ) VALUES (?, ?, ?, '', '', ?, ?, ?, '', ?, ?, ?, ?, ?, 'RECEIVED', ?, ?)
     ON CONFLICT(document_number) DO UPDATE SET
       document_type=excluded.document_type, customer=excluded.customer, project=excluded.project,
-      reference_no=excluded.reference_no, subtotal=excluded.subtotal, grand_total=excluded.grand_total,
+      reference_no=excluded.reference_no, subtotal=excluded.subtotal, tax_percent=excluded.tax_percent,
+      tax_amount=excluded.tax_amount, grand_total=excluded.grand_total,
       notes=excluded.notes, status='RECEIVED', updated_at=excluded.updated_at`
   ).bind("PURCHASE_ORDER", poNo, document.customer, document.project, document.reference_no,
-    document.document_date, subtotal, subtotal, document.notes, now, now).run();
+    document.document_date, subtotal, taxPercent, taxAmount, grandTotal, document.notes, now, now).run();
   const saved = await db.prepare("SELECT id FROM sales_documents WHERE document_number = ? LIMIT 1").bind(poNo).first<{ id: number }>();
   if (!saved?.id) throw new Error("Detail PO gagal disimpan.");
   await db.prepare("DELETE FROM sales_document_items WHERE document_id = ?").bind(saved.id).run();
@@ -346,7 +368,7 @@ export async function PATCH(request: NextRequest) {
     if (body.action === "accept_po") {
       const record = body.record ?? {};
       const poNo = String(record.po_no || "").trim();
-      const poAmount = Number(record.invoice_amount || 0);
+      let poAmount = Number(record.invoice_amount || 0);
       if (!poNo || !Number.isFinite(poAmount) || poAmount < 0 || !(body.items ?? []).length) {
         return NextResponse.json({ error: "Nomor PO, nilai PO, dan detail produk wajib valid." }, { status: 400 });
       }
@@ -362,6 +384,11 @@ export async function PATCH(request: NextRequest) {
         if (duplicate?.length) return NextResponse.json({ error: `Nomor PO ${poNo} sudah terdaftar.` }, { status: 409 });
         if (!current.quotation_no) return NextResponse.json({ error: "Transaksi ini belum memiliki quotation." }, { status: 400 });
         if (current.po_no) return NextResponse.json({ error: `Quotation ini sudah memiliki PO ${current.po_no}.` }, { status: 409 });
+        const { data: quotation, error: quotationError } = await supabase.from("sales_documents")
+          .select("grand_total").eq("document_type", "QUOTATION")
+          .eq("document_number", current.quotation_no).maybeSingle();
+        if (quotationError) throw quotationError;
+        if (quotation && Number.isFinite(Number(quotation.grand_total))) poAmount = Number(quotation.grand_total);
         const notes = String(record.notes || current.notes || "").trim();
         const { error: updateError } = await supabase.from("sales").update({
           po_no: poNo,
@@ -383,6 +410,10 @@ export async function PATCH(request: NextRequest) {
       if (duplicate) return NextResponse.json({ error: `Nomor PO ${poNo} sudah terdaftar.` }, { status: 409 });
       if (!current.quotation_no) return NextResponse.json({ error: "Transaksi ini belum memiliki quotation." }, { status: 400 });
       if (current.po_no) return NextResponse.json({ error: `Quotation ini sudah memiliki PO ${current.po_no}.` }, { status: 409 });
+      const quotation = await db.prepare(
+        "SELECT grand_total FROM sales_documents WHERE document_type = 'QUOTATION' AND document_number = ? LIMIT 1"
+      ).bind(current.quotation_no).first<{ grand_total: number }>();
+      if (quotation && Number.isFinite(Number(quotation.grand_total))) poAmount = Number(quotation.grand_total);
       const notes = String(record.notes || current.notes || "").trim();
       await db.prepare(
         "UPDATE sales SET po_no = ?, invoice_amount = ?, transaction_status = 'PO Diterima', notes = ?, updated_at = ? WHERE id = ?"
