@@ -1375,13 +1375,16 @@ export default function DashboardClient() {
         <div className="pipeline-flow">
           {summaryStages.map((stage, index) => (
             <div className="stage-fragment" key={stage.name}>
-              <button
-                className={`stage-card ${stageFilter === stage.name ? "selected" : ""}`}
-                onClick={() => setStageFilter(stageFilter === stage.name ? "" : stage.name)}
-              >
-                <span className="stage-icon" style={{ color: stage.color, background: stage.soft }}><stage.icon size={20} /></span>
-                <span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.hint}</small><em style={{ color: stage.color }}>{compactMoney(stage.value)}</em></span>
-              </button>
+              <div className="stage-card-shell">
+                <button
+                  className={`stage-card ${stage.name === "PO" && canEdit ? "addable" : ""} ${stageFilter === stage.name ? "selected" : ""}`}
+                  onClick={() => setStageFilter(stageFilter === stage.name ? "" : stage.name)}
+                >
+                  <span className="stage-icon" style={{ color: stage.color, background: stage.soft }}><stage.icon size={20} /></span>
+                  <span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.hint}</small><em style={{ color: stage.color }}>{compactMoney(stage.value)}</em></span>
+                </button>
+                {stage.name === "PO" && canEdit && <button className="stage-quick-add" type="button" onClick={openDirectPo}><Plus size={12} /> Tambah PO</button>}
+              </div>
               {index < summaryStages.length - 1 && <span className="connector" aria-hidden="true" />}
             </div>
           ))}
@@ -1419,10 +1422,13 @@ export default function DashboardClient() {
           <div className="pipeline-flow">
             {stages.map((stage, index) => (
               <div className="stage-fragment" key={stage.name}>
-                <button className={`stage-card ${stageFilter === stage.name ? "selected" : ""}`} onClick={() => setStageFilter(stageFilter === stage.name ? "" : stage.name)}>
-                  <span className="stage-icon" style={{ color: stage.color, background: stage.soft }}><stage.icon size={20} /></span>
-                  <span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.hint}</small><em style={{ color: stage.color }}>{compactMoney(stage.value)}</em></span>
-                </button>
+                <div className="stage-card-shell">
+                  <button className={`stage-card ${stage.name === "PO" && canEdit ? "addable" : ""} ${stageFilter === stage.name ? "selected" : ""}`} onClick={() => setStageFilter(stageFilter === stage.name ? "" : stage.name)}>
+                    <span className="stage-icon" style={{ color: stage.color, background: stage.soft }}><stage.icon size={20} /></span>
+                    <span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.hint}</small><em style={{ color: stage.color }}>{compactMoney(stage.value)}</em></span>
+                  </button>
+                  {stage.name === "PO" && canEdit && <button className="stage-quick-add" type="button" onClick={openDirectPo}><Plus size={12} /> Tambah PO</button>}
+                </div>
                 {index < stages.length - 1 && <span className="connector" aria-hidden="true" />}
               </div>
             ))}
