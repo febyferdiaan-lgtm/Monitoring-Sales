@@ -109,6 +109,7 @@ type SalesDocument = {
 
 type DocumentDraft = {
   type: "QUOTATION" | "INVOICE";
+  quotation_sequence: string;
   customer: string;
   customer_address: string;
   customer_pic: string;
@@ -239,6 +240,7 @@ const newLine = (): DocumentLine => ({
 
 const emptyDocument = (type: "QUOTATION" | "INVOICE"): DocumentDraft => ({
   type,
+  quotation_sequence: "",
   customer: "",
   customer_address: "",
   customer_pic: "",
@@ -250,6 +252,14 @@ const emptyDocument = (type: "QUOTATION" | "INVOICE"): DocumentDraft => ({
   notes: type === "QUOTATION" ? "Harga berlaku selama 14 hari sejak tanggal penawaran." : "Mohon cantumkan nomor invoice pada berita transfer.",
   items: [newLine()],
 });
+
+const documentRomanMonths = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+
+const sequenceFromQuotation = (value: string, year: number) => {
+  if (!value.includes(String(year))) return 0;
+  const match = value.trim().match(/^(\d{1,3})\//);
+  return match ? Number(match[1]) : 0;
+};
 
 const fallbackSales: Sale[] = [
   { id: 1, source_key: "demo-1", customer: "Pertamina Port and Logistic", location: "Jakarta", transaction_type: "Pengadaan", project: "Jaket Brand Wood", rfq_no: "027/MDA-HO/RFQ/V/2025", quotation_no: "062/MDA/XII-2025", po_no: "1286/PPB/XII/25", delivery_no: "037/SJ-MDA/XII/2025", invoice_no: "017/MDA-INV/XII/2025", invoice_amount: 1084947300, amount_paid: 1084947300, due_date: "2025-12-05", payment_date: "2025-12-05", payment_status: "CLOSED", transaction_status: "Done Invoice", notes: "Pembayaran diterima.", created_at: "2025-12-05T00:00:00Z" },
@@ -407,6 +417,8 @@ export default function DashboardClient() {
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
   const [editSaleDraft, setEditSaleDraft] = useState<DraftSale>(emptyDraft);
   const [selectedDocument, setSelectedDocument] = useState<SalesDocument | null>(null);
+  const [editingQuotationDocument, setEditingQuotationDocument] = useState<SalesDocument | null>(null);
+  const [quotationSequenceDraft, setQuotationSequenceDraft] = useState("");
   const [draft, setDraft] = useState<DraftSale>(emptyDraft);
   const [directPoDraft, setDirectPoDraft] = useState<DraftSale>(emptyDraft);
   const [parts, setParts] = useState<SparePart[]>([]);
@@ -1059,6 +1071,16 @@ export default function DashboardClient() {
     }
   };
 
+  const suggestedQuotationSequence = (date: string) => {
+    const parsed = new Date(`${date}T00:00:00`);
+    const selectedYear = Number.isNaN(parsed.valueOf()) ? new Date().getFullYear() : parsed.getFullYear();
+    const used = [
+      ...documents.filter((document) => document.document_type === "QUOTATION").map((document) => sequenceFromQuotation(document.document_number, selectedYear)),
+      ...sales.map((sale) => sequenceFromQuotation(sale.quotation_no, selectedYear)),
+    ];
+    return String(Math.min(999, Math.max(0, ...used) + 1)).padStart(3, "0");
+  };
+
   const openDocumentForm = (type: "QUOTATION" | "INVOICE", source?: SalesDocument) => {
     if (source) {
       setDocumentDraft({
@@ -1082,7 +1104,9 @@ export default function DashboardClient() {
         })),
       });
     } else {
-      setDocumentDraft(emptyDocument(type));
+      const next = emptyDocument(type);
+      if (type === "QUOTATION") next.quotation_sequence = suggestedQuotationSequence(next.document_date);
+      setDocumentDraft(next);
     }
     setShowDocument(true);
   };
@@ -1109,6 +1133,45 @@ export default function DashboardClient() {
     });
   };
 
+  const quotationSequence = documentDraft.quotation_sequence.padStart(3, "0");
+  const quotationDate = new Date(`${documentDraft.document_date}T00:00:00`);
+  const quotationYear = Number.isNaN(quotationDate.valueOf()) ? new Date().getFullYear() : quotationDate.getFullYear();
+  const quotationMonth = Number.isNaN(quotationDate.valueOf()) ? new Date().getMonth() : quotationDate.getMonth();
+  const quotationNumberPreview = `${quotationSequence}/MDA-QUOT/${documentRomanMonths[quotationMonth]}/${quotationYear}`;
+
+  const openQuotationNumberEdit = (document: SalesDocument) => {
+    const match = document.document_number.match(/^(\d{1,3})\//);
+    setEditingQuotationDocument(document);
+    setQuotationSequenceDraft(String(match ? Number(match[1]) : 1).padStart(3, "0"));
+  };
+
+  const editedQuotationNumber = editingQuotationDocument
+    ? `${quotationSequenceDraft.padStart(3, "0")}${editingQuotationDocument.document_number.replace(/^\d{1,3}/, "")}`
+    : "";
+
+  const saveQuotationNumber = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!editingQuotationDocument || !isAdmin) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/documents", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editingQuotationDocument.id, document_number: editedQuotationNumber }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Nomor quotation belum berhasil diubah.");
+      setEditingQuotationDocument(null);
+      setSelectedDocument(null);
+      setNotice(`Nomor quotation berhasil diubah menjadi ${payload.document_number}.`);
+      await Promise.all([loadBusinessData(), loadSales()]);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Nomor quotation belum berhasil diubah.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const documentSubtotal = documentDraft.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
   const documentTax = documentSubtotal * Number(documentDraft.tax_percent || 0) / 100;
   const documentTotal = documentSubtotal + documentTax;
@@ -1122,14 +1185,14 @@ export default function DashboardClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(documentDraft),
       });
-      if (!response.ok) throw new Error();
       const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Dokumen belum berhasil dibuat.");
       setShowDocument(false);
       setNotice(`${documentDraft.type === "INVOICE" ? "Invoice" : "Quotation"} ${payload.document_number} berhasil dibuat.`);
       await Promise.all([loadBusinessData(), loadSales()]);
       setActiveNav("Dokumen");
-    } catch {
-      setNotice("Dokumen belum berhasil dibuat. Lengkapi customer dan minimal satu item.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Dokumen belum berhasil dibuat. Lengkapi customer dan minimal satu item.");
     } finally {
       setSaving(false);
     }
@@ -1705,7 +1768,7 @@ export default function DashboardClient() {
                     <td><b>{document.customer}</b><small>{document.project || `${document.items.length} item`}</small></td>
                     <td>{document.document_date}</td>
                     <td className="number"><strong>{money.format(document.grand_total)}</strong></td>
-                    <td><div className="row-actions"><button aria-label="Lihat dokumen" onClick={() => setSelectedDocument(document)}><FileText size={15} /></button><button aria-label="Cetak dokumen" onClick={() => printDocument(document)}><Printer size={15} /></button>{canEdit && document.document_type === "QUOTATION" && !linkedSale?.po_no && <button className="convert-button po-convert" onClick={() => openPoFromQuotationDocument(document)}><ShoppingBag size={13} /> PO Diterima</button>}{linkedSale?.po_no && <span className="po-linked-badge"><CheckCircle2 size={12} /> PO Diterima</span>}{canEdit && document.document_type === "QUOTATION" && <button className="convert-button" onClick={() => openDocumentForm("INVOICE", document)}>Jadi Invoice</button>}</div></td>
+                    <td><div className="row-actions"><button aria-label="Lihat dokumen" onClick={() => setSelectedDocument(document)}><FileText size={15} /></button><button aria-label="Cetak dokumen" onClick={() => printDocument(document)}><Printer size={15} /></button>{isAdmin && document.document_type === "QUOTATION" && <button className="quotation-number-edit" onClick={() => openQuotationNumberEdit(document)}><Pencil size={13} /> No. Quot</button>}{canEdit && document.document_type === "QUOTATION" && !linkedSale?.po_no && <button className="convert-button po-convert" onClick={() => openPoFromQuotationDocument(document)}><ShoppingBag size={13} /> PO Diterima</button>}{linkedSale?.po_no && <span className="po-linked-badge"><CheckCircle2 size={12} /> PO Diterima</span>}{canEdit && document.document_type === "QUOTATION" && <button className="convert-button" onClick={() => openDocumentForm("INVOICE", document)}>Jadi Invoice</button>}</div></td>
                   </tr>;
                 })}
                 {!documents.length && <tr><td colSpan={6} className="empty-state">Belum ada quotation atau invoice yang dibuat dari aplikasi.</td></tr>}
@@ -1892,10 +1955,11 @@ export default function DashboardClient() {
             <div className="modal-head"><div><p className="eyebrow">{documentDraft.type === "INVOICE" ? "INVOICE BARU" : "QUOTATION BARU"}</p><h2 id="document-title">Buat {documentDraft.type === "INVOICE" ? "Invoice" : "Quotation"}</h2><p>Pilih sparepart agar part number, satuan, dan harga jual terisi otomatis.</p></div><button className="icon-button" onClick={() => setShowDocument(false)} aria-label="Tutup"><X /></button></div>
             <form onSubmit={saveDocument} className="document-form">
               <section className="document-meta">
-                <label>Jenis Dokumen<select value={documentDraft.type} onChange={(e) => setDocumentDraft({ ...documentDraft, type: e.target.value as "QUOTATION" | "INVOICE" })}><option value="QUOTATION">Quotation</option><option value="INVOICE">Invoice</option></select></label>
+                <label>Jenis Dokumen<select value={documentDraft.type} onChange={(e) => { const type = e.target.value as "QUOTATION" | "INVOICE"; setDocumentDraft({ ...documentDraft, type, quotation_sequence: type === "QUOTATION" ? documentDraft.quotation_sequence || suggestedQuotationSequence(documentDraft.document_date) : "" }); }}><option value="QUOTATION">Quotation</option><option value="INVOICE">Invoice</option></select></label>
+                {documentDraft.type === "QUOTATION" && <label className="wide quotation-number-field">Nomor Quotation<span className="quotation-number-control"><input required inputMode="numeric" pattern="[0-9]{3}" maxLength={3} value={documentDraft.quotation_sequence} onChange={(e) => setDocumentDraft({ ...documentDraft, quotation_sequence: e.target.value.replace(/\D/g, "").slice(0, 3) })} aria-label="Tiga digit awal nomor quotation" /><b>{quotationNumberPreview.slice(3)}</b></span><small>Sales dan Admin dapat menyesuaikan tiga digit awal agar urutannya melanjutkan nomor quotation terakhir.</small></label>}
                 <label>Customer<input required list="customer-list" value={documentDraft.customer} onChange={(e) => setDocumentDraft({ ...documentDraft, customer: e.target.value })} placeholder="Nama perusahaan/customer" /><datalist id="customer-list">{customers.map((customer) => <option key={customer.name} value={customer.name} />)}</datalist></label>
                 <label>PIC Customer<input value={documentDraft.customer_pic} onChange={(e) => setDocumentDraft({ ...documentDraft, customer_pic: e.target.value })} placeholder="Nama PIC" /></label>
-                <label>Tanggal Dokumen<input required type="date" value={documentDraft.document_date} onChange={(e) => setDocumentDraft({ ...documentDraft, document_date: e.target.value })} /></label>
+                <label>Tanggal Dokumen<input required type="date" value={documentDraft.document_date} onChange={(e) => setDocumentDraft({ ...documentDraft, document_date: e.target.value, quotation_sequence: documentDraft.type === "QUOTATION" ? suggestedQuotationSequence(e.target.value) : documentDraft.quotation_sequence })} /></label>
                 <label className="wide">Alamat Customer<input value={documentDraft.customer_address} onChange={(e) => setDocumentDraft({ ...documentDraft, customer_address: e.target.value })} placeholder="Alamat lengkap untuk dokumen" /></label>
                 <label>Proyek / Kebutuhan<input value={documentDraft.project} onChange={(e) => setDocumentDraft({ ...documentDraft, project: e.target.value })} /></label>
                 <label>{documentDraft.type === "INVOICE" ? "Referensi Quotation / PO" : "Referensi RFQ"}<input value={documentDraft.reference_no} onChange={(e) => setDocumentDraft({ ...documentDraft, reference_no: e.target.value })} /></label>
@@ -1929,6 +1993,19 @@ export default function DashboardClient() {
                 </div>
               </div>
               <div className="form-actions"><button type="button" className="secondary-button" onClick={() => setShowDocument(false)}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Membuat Dokumen…" : `Simpan ${documentDraft.type === "INVOICE" ? "Invoice" : "Quotation"}`}</button></div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {editingQuotationDocument && isAdmin && (
+        <div className="modal-backdrop" onMouseDown={() => !saving && setEditingQuotationDocument(null)}>
+          <section className="modal quotation-number-modal" role="dialog" aria-modal="true" aria-labelledby="quotation-number-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head"><div><p className="eyebrow">ADMIN · NOMOR QUOTATION</p><h2 id="quotation-number-title">Ubah Nomor Quotation</h2><p>Perubahan ini juga memperbarui nomor quotation pada transaksi dan dokumen yang terhubung.</p></div><button className="icon-button" onClick={() => setEditingQuotationDocument(null)} aria-label="Tutup"><X /></button></div>
+            <form className="quotation-number-form" onSubmit={saveQuotationNumber}>
+              <label>Tiga digit awal<input autoFocus required inputMode="numeric" pattern="[0-9]{3}" maxLength={3} value={quotationSequenceDraft} onChange={(event) => setQuotationSequenceDraft(event.target.value.replace(/\D/g, "").slice(0, 3))} /></label>
+              <div><span>Nomor quotation baru</span><strong>{editedQuotationNumber}</strong><small>Nomor sebelumnya: {editingQuotationDocument.document_number}</small></div>
+              <div className="form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => setEditingQuotationDocument(null)}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Menyimpan…" : "Simpan Nomor Quotation"}</button></div>
             </form>
           </section>
         </div>
