@@ -151,11 +151,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .section-note { margin: 6px 0 0; color: var(--muted); font-size: 10px; }
 .pipeline-flow { display: flex; align-items: stretch; overflow-x: auto; padding: 2px 1px 6px; scrollbar-width: thin; }
 .stage-fragment { display: flex; align-items: center; flex: 1 0 172px; min-width: 0; }
-.stage-card-shell { position: relative; width: 100%; min-width: 152px; }
 .stage-card { width: 100%; min-width: 152px; height: 126px; padding: 13px; display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--border); border-radius: 14px; background: #fff; text-align: left; cursor: pointer; transition: .15s ease; }
-.stage-card.addable { padding-bottom: 39px; border-color: #d9d2f3; }
-.stage-quick-add { position: absolute; right: 9px; bottom: 9px; left: 9px; min-height: 25px; display: flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid #d9d2f3; border-radius: 8px; background: #f6f2ff; color: var(--purple); font-size: 8px; font-weight: 800; cursor: pointer; transition: .15s ease; }
-.stage-quick-add:hover { border-color: var(--purple); background: #eee7ff; }
 .stage-card:hover, .stage-card.selected { border-color: var(--red); box-shadow: 0 4px 12px rgba(243,34,43,.08); }
 .stage-icon { width: 36px; height: 36px; display: grid; place-items: center; flex: none; border-radius: 11px; }
 .stage-card > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -242,8 +238,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .customer-finance strong { overflow: hidden; font-size: 11px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .customer-finance .paid-value { color: var(--green); }
 .customer-finance .outstanding-value { color: var(--red); }
-.customer-detail-button { width: 100%; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #eadfe0; border-radius: 9px; background: #fffafa; color: var(--red); font-size: 10px; font-weight: 750; cursor: pointer; }
-.customer-detail-button:hover { border-color: #e3bfc3; background: var(--red-soft); }
 .customer-empty { grid-column: 1 / -1; padding: 42px; color: var(--muted); text-align: center; font-size: 12px; }
 .receivable-summary { background: linear-gradient(135deg, #fff 0%, #fff3f3 100%); }
 .summary-receivables { margin-top: 20px; }
@@ -327,23 +321,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .users-table { min-width: 680px; }
 .users-table select { min-width: 130px; padding: 7px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 10px; }
 .excel-detail-modal { width: min(1050px, 100%); }
-.modal.customer-detail-modal { width: min(1120px, 100%); }
-.customer-transaction-scroll { max-height: min(62vh, 620px); margin-top: 18px; }
-.customer-transaction-table { min-width: 900px; }
-.customer-transaction-actions { display: flex; align-items: center; gap: 6px; }
-.customer-transaction-actions .edit { border-color: #d9d2f3; color: var(--purple); }
-.customer-transaction-actions .po, .part-detail-button.po { border-color: #d9d2f3; background: #f6f2ff; color: var(--purple); }
-.customer-transaction-table th:last-child,
-.customer-transaction-table td:last-child { position: sticky; right: 0; z-index: 2; background: #fff; box-shadow: -10px 0 14px -14px rgba(31, 26, 24, .45); }
-.customer-transaction-table th:last-child { z-index: 3; }
-.transaction-edit-modal { width: min(820px, 100%); max-height: 92vh; overflow: auto; }
-.modal.direct-po-modal { width: min(1180px, 100%); }
-.direct-po-note { margin-top: 16px; padding: 13px 14px; display: flex; align-items: center; gap: 11px; border: 1px solid #ddd2fa; border-radius: 12px; background: #f7f3ff; color: var(--purple); }
-.direct-po-note div { display: grid; gap: 3px; }
-.direct-po-note b { color: var(--charcoal); font-size: 11px; }
-.direct-po-note span { color: var(--secondary); font-size: 9px; }
-.direct-po-form { padding-top: 18px; }
-.direct-po-items { margin-top: 0; }
 .excel-detail-grid { padding-top: 18px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .excel-detail-grid > div { min-width: 0; min-height: 70px; padding: 11px; display: flex; flex-direction: column; gap: 7px; border-radius: 10px; background: var(--subtle); }
 .excel-detail-grid span { color: var(--muted); font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }

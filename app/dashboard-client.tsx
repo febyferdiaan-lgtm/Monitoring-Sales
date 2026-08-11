@@ -397,18 +397,11 @@ export default function DashboardClient() {
   const [stageFilter, setStageFilter] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [showDirectPo, setShowDirectPo] = useState(false);
-  const [directPoSource, setDirectPoSource] = useState<Sale | null>(null);
-  const [directPoItems, setDirectPoItems] = useState<DocumentLine[]>([newLine()]);
   const [showPart, setShowPart] = useState(false);
   const [showDocument, setShowDocument] = useState(false);
   const [selected, setSelected] = useState<Sale | null>(null);
-  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
-  const [editingSale, setEditingSale] = useState<Sale | null>(null);
-  const [editSaleDraft, setEditSaleDraft] = useState<DraftSale>(emptyDraft);
   const [selectedDocument, setSelectedDocument] = useState<SalesDocument | null>(null);
   const [draft, setDraft] = useState<DraftSale>(emptyDraft);
-  const [directPoDraft, setDirectPoDraft] = useState<DraftSale>(emptyDraft);
   const [parts, setParts] = useState<SparePart[]>([]);
   const [documents, setDocuments] = useState<SalesDocument[]>([]);
   const [partDraft, setPartDraft] = useState<DraftPart>(emptyPart);
@@ -462,7 +455,7 @@ export default function DashboardClient() {
   const loadBusinessData = async () => {
     try {
       const documentsResponse = await fetch("/api/documents");
-      if (documentsResponse.ok) setDocuments(((await documentsResponse.json()).data ?? []).filter((document: SalesDocument) => document.document_type === "QUOTATION" || document.document_type === "INVOICE"));
+      if (documentsResponse.ok) setDocuments((await documentsResponse.json()).data ?? []);
       const partsResponse = await fetch("/api/spareparts");
       if (partsResponse.ok) setParts((await partsResponse.json()).data ?? []);
     } catch {
@@ -671,79 +664,6 @@ export default function DashboardClient() {
     setShowAdd(true);
   };
 
-  const openDirectPo = (sale?: Sale) => {
-    const quotation = sale ? documents.find((document) => document.document_type === "QUOTATION" && document.document_number === sale.quotation_no) : null;
-    setDirectPoSource(sale ?? null);
-    setDirectPoDraft(sale ? {
-      customer: sale.customer,
-      location: sale.location,
-      transaction_type: sale.transaction_type || "Trading Part",
-      project: sale.project,
-      rfq_no: sale.rfq_no,
-      quotation_no: sale.quotation_no,
-      po_no: "",
-      delivery_no: "",
-      invoice_no: "",
-      invoice_amount: Number(sale.invoice_amount || 0),
-      amount_paid: 0,
-      due_date: "",
-      payment_date: "",
-      payment_status: "OPEN",
-      transaction_status: "PO Diterima",
-      notes: sale.notes,
-    } : { ...emptyDraft, rfq_no: "", quotation_no: "", transaction_status: "PO Diterima" });
-    setDirectPoItems(quotation?.items?.length ? quotation.items.map((item) => ({ ...item, key: localKey() })) : [newLine()]);
-    setShowDirectPo(true);
-  };
-
-  const updateDirectPoLine = (key: string, patch: Partial<DocumentLine>) => {
-    setDirectPoItems((current) => current.map((item) => item.key === key ? { ...item, ...patch } : item));
-  };
-
-  const selectPartForDirectPo = (key: string, id: string) => {
-    const part = parts.find((item) => item.id === Number(id));
-    updateDirectPoLine(key, part ? {
-      spare_part_id: part.id,
-      part_number: part.part_number,
-      description: part.name,
-      unit: part.unit,
-      unit_price: Number(part.selling_price),
-    } : { spare_part_id: null, part_number: "", description: "", unit: "Pcs", unit_price: 0 });
-  };
-
-  const directPoTotal = directPoItems.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
-
-  const submitDirectPo = async (event: FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      const validItems = directPoItems.filter((item) => item.description.trim() && Number(item.quantity) > 0);
-      if (!validItems.length) throw new Error("Tambahkan minimal satu produk pada PO.");
-      const response = await fetch("/api/sales", {
-        method: directPoSource ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: directPoSource ? "accept_po" : "add_po",
-          id: directPoSource?.id,
-          record: { ...directPoDraft, invoice_amount: directPoTotal },
-          items: validItems,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "PO belum berhasil disimpan.");
-      setShowDirectPo(false);
-      setDirectPoSource(null);
-      setSelected(null);
-      setStageFilter("PO");
-      setNotice(directPoSource ? `Quotation ${directPoSource.quotation_no} berhasil diperbarui menjadi PO ${directPoDraft.po_no.trim()}.` : `PO ${directPoDraft.po_no.trim()} berhasil ditambahkan tanpa RFQ.`);
-      await Promise.all([loadSales(), loadBusinessData()]);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "PO belum berhasil disimpan.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const submitAdd = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -759,51 +679,6 @@ export default function DashboardClient() {
       await loadSales();
     } catch {
       setNotice("Data belum berhasil disimpan.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const openTransactionEdit = (sale: Sale) => {
-    setEditingSale(sale);
-    setEditSaleDraft({
-      customer: sale.customer,
-      location: sale.location,
-      transaction_type: sale.transaction_type,
-      project: sale.project,
-      rfq_no: sale.rfq_no,
-      quotation_no: sale.quotation_no,
-      po_no: sale.po_no,
-      delivery_no: sale.delivery_no,
-      invoice_no: sale.invoice_no,
-      invoice_amount: Number(sale.invoice_amount),
-      amount_paid: Number(sale.amount_paid),
-      due_date: sale.due_date,
-      payment_date: sale.payment_date,
-      payment_status: sale.payment_status,
-      transaction_status: sale.transaction_status,
-      notes: sale.notes,
-    });
-  };
-
-  const saveTransactionEdit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!editingSale || !isAdmin) return;
-    setSaving(true);
-    try {
-      const response = await fetch("/api/sales", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: editingSale.id, ...editSaleDraft }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Transaksi belum berhasil diperbarui.");
-      setEditingSale(null);
-      setSelectedCustomer(editSaleDraft.customer.trim() || selectedCustomer);
-      setNotice("Data transaksi customer berhasil diperbarui.");
-      await loadSales();
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Transaksi belum berhasil diperbarui.");
     } finally {
       setSaving(false);
     }
@@ -959,16 +834,6 @@ export default function DashboardClient() {
     if (!documentType || !documentNo) return;
     setSelectedPartsLoading(true);
     try {
-      if (sale.po_no) {
-        const directResponse = await fetch(`/api/sales/items?po_no=${encodeURIComponent(sale.po_no)}`);
-        if (directResponse.ok) {
-          const directItems = (await directResponse.json()).data ?? [];
-          if (directItems.length) {
-            setSelectedParts(directItems);
-            return;
-          }
-        }
-      }
       const response = await fetch(`/api/excel?document_type=${documentType}&document_no=${encodeURIComponent(documentNo)}`);
       if (!response.ok) throw new Error();
       setSelectedParts((await response.json()).data ?? []);
@@ -1433,16 +1298,13 @@ export default function DashboardClient() {
         <div className="pipeline-flow">
           {summaryStages.map((stage, index) => (
             <div className="stage-fragment" key={stage.name}>
-              <div className="stage-card-shell">
-                <button
-                  className={`stage-card ${stage.name === "PO" && canEdit ? "addable" : ""} ${stageFilter === stage.name ? "selected" : ""}`}
-                  onClick={() => setStageFilter(stageFilter === stage.name ? "" : stage.name)}
-                >
-                  <span className="stage-icon" style={{ color: stage.color, background: stage.soft }}><stage.icon size={20} /></span>
-                  <span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.hint}</small><em style={{ color: stage.color }}>{compactMoney(stage.value)}</em></span>
-                </button>
-                {stage.name === "PO" && canEdit && <button className="stage-quick-add" type="button" onClick={() => openDirectPo()}><Plus size={12} /> Tambah PO</button>}
-              </div>
+              <button
+                className={`stage-card ${stageFilter === stage.name ? "selected" : ""}`}
+                onClick={() => setStageFilter(stageFilter === stage.name ? "" : stage.name)}
+              >
+                <span className="stage-icon" style={{ color: stage.color, background: stage.soft }}><stage.icon size={20} /></span>
+                <span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.hint}</small><em style={{ color: stage.color }}>{compactMoney(stage.value)}</em></span>
+              </button>
               {index < summaryStages.length - 1 && <span className="connector" aria-hidden="true" />}
             </div>
           ))}
@@ -1474,25 +1336,22 @@ export default function DashboardClient() {
     if (activeNav === "Dashboard") return renderDashboard();
     if (activeNav === "Pipeline") return (
       <section className="module-stack">
-        <div className="module-banner"><span className="banner-icon"><TrendingUp /></span><div><p className="eyebrow">PROSES PENJUALAN</p><h2>Lihat posisi setiap pekerjaan</h2><p>Pilih salah satu tahap untuk melihat pekerjaan yang sedang berada pada proses tersebut.</p></div>{canEdit && <button className="primary-button" type="button" onClick={() => openDirectPo()}><ShoppingBag size={17} /> Tambah PO Tanpa RFQ</button>}</div>
+        <div className="module-banner"><span className="banner-icon"><TrendingUp /></span><div><p className="eyebrow">PROSES PENJUALAN</p><h2>Lihat posisi setiap pekerjaan</h2><p>Pilih salah satu tahap untuk melihat pekerjaan yang sedang berada pada proses tersebut.</p></div></div>
         <div className="panel pipeline-panel">
           <div className="section-head"><div><p className="eyebrow">RFQ SAMPAI LUNAS</p><h2>Alur Penjualan</h2></div></div>
           <div className="pipeline-flow">
             {stages.map((stage, index) => (
               <div className="stage-fragment" key={stage.name}>
-                <div className="stage-card-shell">
-                  <button className={`stage-card ${stage.name === "PO" && canEdit ? "addable" : ""} ${stageFilter === stage.name ? "selected" : ""}`} onClick={() => setStageFilter(stageFilter === stage.name ? "" : stage.name)}>
-                    <span className="stage-icon" style={{ color: stage.color, background: stage.soft }}><stage.icon size={20} /></span>
-                    <span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.hint}</small><em style={{ color: stage.color }}>{compactMoney(stage.value)}</em></span>
-                  </button>
-                  {stage.name === "PO" && canEdit && <button className="stage-quick-add" type="button" onClick={() => openDirectPo()}><Plus size={12} /> Tambah PO</button>}
-                </div>
+                <button className={`stage-card ${stageFilter === stage.name ? "selected" : ""}`} onClick={() => setStageFilter(stageFilter === stage.name ? "" : stage.name)}>
+                  <span className="stage-icon" style={{ color: stage.color, background: stage.soft }}><stage.icon size={20} /></span>
+                  <span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.hint}</small><em style={{ color: stage.color }}>{compactMoney(stage.value)}</em></span>
+                </button>
                 {index < stages.length - 1 && <span className="connector" aria-hidden="true" />}
               </div>
             ))}
           </div>
         </div>
-        <SalesTable rows={filtered} onSelect={openSaleDetail} onAcceptPo={canEdit ? openDirectPo : undefined} />
+        <SalesTable rows={filtered} onSelect={openSaleDetail} />
       </section>
     );
     if (activeNav === "Tagihan") return (
@@ -1532,7 +1391,6 @@ export default function DashboardClient() {
                 <div><span>Terbayar</span><strong className="paid-value">{money.format(customer.paid)}</strong></div>
                 <div><span>Outstanding</span><strong className={customer.outstanding > 0 ? "outstanding-value" : ""}>{money.format(customer.outstanding)}</strong></div>
               </div>
-              <button className="customer-detail-button" type="button" onClick={() => setSelectedCustomer(customer.name)}><Eye size={14} /> Lihat Detail Transaksi</button>
             </article>
           ))}
           {!customers.length && <div className="panel customer-empty">Belum ada customer pada filter ini.</div>}
@@ -1587,7 +1445,7 @@ export default function DashboardClient() {
           <div><p className="eyebrow">SUMBER DATA UTAMA</p><h2>{excelTotal} baris Excel tersinkron</h2><p>Unggah file terbaru untuk mengganti sumber utama dan menghitung ulang seluruh Summary.</p>{excelSource && <small className="excel-source-meta">{excelSource.source_file} · diperbarui {new Date(excelSource.imported_at).toLocaleString("id-ID")}</small>}</div>
           <div className="excel-source-actions">
             {canEdit && <button className="secondary-button" onClick={() => fileRef.current?.click()} disabled={saving}><Upload size={16} /> Update Sumber Excel</button>}
-            <button className="primary-button" onClick={downloadUpdatedExcel} disabled={saving}><Download size={16} /> Download Excel + Summary</button>
+            <a className="primary-button" href="/api/excel/download"><Download size={16} /> Download Excel + Summary</a>
           </div>
         </div>
         <article className="panel full-table">
@@ -1693,13 +1551,13 @@ export default function DashboardClient() {
     );
     return (
       <section className="module-stack">
-        <div className="module-banner green"><span className="banner-icon"><FileBarChart /></span><div><p className="eyebrow">LAPORAN PENJUALAN</p><h2>Ringkasan siap diunduh</h2><p>Unduh CSV sesuai filter atau file sumber Excel lengkap dengan Summary terbaru.</p></div><div className="report-download-actions"><button className="secondary-button" onClick={exportCsv}><Download size={17} /> Unduh CSV</button><button className="primary-button" onClick={downloadUpdatedExcel} disabled={saving}><FileSpreadsheet size={17} /> Excel + Summary</button></div></div>
+        <div className="module-banner green"><span className="banner-icon"><FileBarChart /></span><div><p className="eyebrow">LAPORAN PENJUALAN</p><h2>Ringkasan siap diunduh</h2><p>Unduh CSV sesuai filter atau file sumber Excel lengkap dengan Summary terbaru.</p></div><div className="report-download-actions"><button className="secondary-button" onClick={exportCsv}><Download size={17} /> Unduh CSV</button><a className="primary-button" href="/api/excel/download"><FileSpreadsheet size={17} /> Excel + Summary</a></div></div>
         <section className="report-grid">
           <article className="panel report-card"><p>Total transaksi</p><strong>{filtered.length}</strong><span>{customers.length} customer</span></article>
           <article className="panel report-card"><p>Nilai penjualan</p><strong>{compactMoney(pipelineValue)}</strong><span>{winRate}% selesai</span></article>
           <article className="panel report-card"><p>Piutang aktif</p><strong>{compactMoney(outstanding)}</strong><span>{overdue.length} terlambat</span></article>
         </section>
-        <SalesTable rows={filtered} onSelect={setSelected} onAcceptPo={canEdit ? openDirectPo : undefined} />
+        <SalesTable rows={filtered} onSelect={setSelected} />
       </section>
     );
   };
@@ -1805,42 +1663,6 @@ export default function DashboardClient() {
         </div>
       )}
 
-      {showDirectPo && (
-        <div className="modal-backdrop" onMouseDown={() => !saving && setShowDirectPo(false)}>
-          <section className="modal direct-po-modal" role="dialog" aria-modal="true" aria-labelledby="direct-po-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head"><div><p className="eyebrow">{directPoSource ? "QUOTATION MENJADI PO" : "PO CUSTOMER LANGSUNG"}</p><h2 id="direct-po-title">{directPoSource ? "Konfirmasi PO Diterima" : "Tambah PO Baru Tanpa RFQ"}</h2><p>{directPoSource ? `Quotation ${directPoSource.quotation_no} · ${directPoSource.customer}` : "Catat PO customer beserta seluruh detail produk yang ditransaksikan."}</p></div><button className="icon-button" onClick={() => setShowDirectPo(false)} aria-label="Tutup"><X /></button></div>
-            <div className="direct-po-note"><ShoppingBag size={20} /><div><b>Transaksi langsung masuk tahap PO Diterima</b><span>{directPoSource ? "Data customer dan produk disalin dari quotation; lengkapi nomor PO customer." : "RFQ dan quotation dikosongkan, sementara detail produk disimpan bersama PO."}</span></div></div>
-            <form onSubmit={submitDirectPo} className="document-form direct-po-form">
-              <section className="document-meta">
-                <label>Customer<input required list="direct-po-customers" value={directPoDraft.customer} readOnly={Boolean(directPoSource)} onChange={(event) => setDirectPoDraft({ ...directPoDraft, customer: event.target.value })} placeholder="Pilih atau ketik nama customer" /><datalist id="direct-po-customers">{customers.map((customer) => <option key={customer.name} value={customer.name} />)}</datalist></label>
-                <label>No. PO Customer<input required value={directPoDraft.po_no} onChange={(event) => setDirectPoDraft({ ...directPoDraft, po_no: event.target.value })} placeholder="Nomor PO customer" /></label>
-                <label>Jenis transaksi<select value={directPoDraft.transaction_type} onChange={(event) => setDirectPoDraft({ ...directPoDraft, transaction_type: event.target.value })}><option>Trading Part</option><option>Jasa</option><option>Pengadaan</option><option>Project</option></select></label>
-                <label>Lokasi<input value={directPoDraft.location} onChange={(event) => setDirectPoDraft({ ...directPoDraft, location: event.target.value })} placeholder="Kota / site" /></label>
-                <label className="wide">Proyek / Kebutuhan<input required value={directPoDraft.project} readOnly={Boolean(directPoSource)} onChange={(event) => setDirectPoDraft({ ...directPoDraft, project: event.target.value })} placeholder="Nama proyek atau kebutuhan customer" /></label>
-              </section>
-              <section className="line-items direct-po-items">
-                <div className="line-items-head"><div><p className="eyebrow">DETAIL PRODUK PO</p><h3>Part, jumlah, dan harga transaksi</h3></div><button type="button" className="secondary-button" onClick={() => setDirectPoItems((current) => [...current, newLine()])}><Plus size={15} /> Tambah Baris</button></div>
-                {directPoItems.map((item, index) => (
-                  <div className="line-item" key={item.key}>
-                    <span className="line-number">{index + 1}</span>
-                    <label className="part-select">Pilih Sparepart<select value={item.spare_part_id ?? ""} onChange={(event) => selectPartForDirectPo(item.key, event.target.value)}><option value="">Item manual</option>{parts.map((part) => <option key={part.id} value={part.id}>{part.part_number} — {part.name}</option>)}</select></label>
-                    <label>Part Number<input value={item.part_number} onChange={(event) => updateDirectPoLine(item.key, { part_number: event.target.value.toUpperCase() })} /></label>
-                    <label className="description">Deskripsi<input required value={item.description} onChange={(event) => updateDirectPoLine(item.key, { description: event.target.value })} /></label>
-                    <label>QTY<input required type="number" min="0.01" step="0.01" value={item.quantity} onChange={(event) => updateDirectPoLine(item.key, { quantity: Number(event.target.value) })} /></label>
-                    <label>Satuan<input value={item.unit} onChange={(event) => updateDirectPoLine(item.key, { unit: event.target.value })} /></label>
-                    <label>Harga<input required type="number" min="0" step="0.01" value={item.unit_price} onChange={(event) => updateDirectPoLine(item.key, { unit_price: Number(event.target.value) })} /></label>
-                    <div className="line-total"><span>Jumlah</span><strong>{money.format(item.quantity * item.unit_price)}</strong></div>
-                    <button type="button" className="remove-line" aria-label={`Hapus item ${index + 1}`} disabled={directPoItems.length === 1} onClick={() => setDirectPoItems((current) => current.filter((line) => line.key !== item.key))}><Trash2 size={16} /></button>
-                  </div>
-                ))}
-              </section>
-              <div className="document-footer-form"><label>Catatan<textarea value={directPoDraft.notes} onChange={(event) => setDirectPoDraft({ ...directPoDraft, notes: event.target.value })} placeholder="PIC, jadwal pengiriman, atau informasi penting lainnya" /></label><div className="document-totals"><div className="grand-total"><span>Total Nilai PO</span><strong>{money.format(directPoTotal)}</strong></div></div></div>
-              <div className="form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => setShowDirectPo(false)}>Batal</button><button className="primary-button" disabled={saving}><ShoppingBag size={16} /> {saving ? "Menyimpan…" : directPoSource ? "Simpan PO Diterima" : "Simpan PO Baru"}</button></div>
-            </form>
-          </section>
-        </div>
-      )}
-
       {showPart && (
         <div className="modal-backdrop" onMouseDown={() => setShowPart(false)}>
           <section className="modal part-modal" role="dialog" aria-modal="true" aria-labelledby="part-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -1932,61 +1754,6 @@ export default function DashboardClient() {
         </div>
       )}
 
-      {selectedCustomer && (
-        <div className="modal-backdrop" onMouseDown={() => setSelectedCustomer(null)}>
-          <section className="modal customer-detail-modal" role="dialog" aria-modal="true" aria-labelledby="customer-detail-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head">
-              <div><p className="eyebrow">DETAIL TRANSAKSI CUSTOMER</p><h2 id="customer-detail-title">{selectedCustomer}</h2><p>{filtered.filter((sale) => sale.customer.trim() === selectedCustomer).length} transaksi pada periode dan filter aktif.</p></div>
-              <button className="icon-button" onClick={() => setSelectedCustomer(null)} aria-label="Tutup"><X /></button>
-            </div>
-            <div className="table-scroll customer-transaction-scroll">
-              <table className="data-table customer-transaction-table">
-                <thead><tr><th>Proyek / Jenis</th><th>Dokumen</th><th className="number">Nilai Invoice</th><th className="number">Terbayar</th><th>Status</th><th>Aksi</th></tr></thead>
-                <tbody>
-                  {filtered.filter((sale) => sale.customer.trim() === selectedCustomer).map((sale) => (
-                    <tr key={sale.id}>
-                      <td><b>{sale.project || "Tanpa proyek"}</b><small>{sale.transaction_type || "Jenis transaksi belum diisi"}{sale.location ? ` · ${sale.location}` : ""}</small></td>
-                      <td><b>{sale.invoice_no || sale.po_no || sale.quotation_no || sale.rfq_no || "—"}</b><small>{sale.invoice_no ? "Invoice" : sale.po_no ? "PO" : sale.quotation_no ? "Quotation" : sale.rfq_no ? "RFQ" : "Belum ada dokumen"}</small></td>
-                      <td className="number">{money.format(Number(sale.invoice_amount || 0))}</td>
-                      <td className="number">{money.format(Number(sale.amount_paid || 0))}</td>
-                      <td><span className={`status ${stageOf(sale) === "Payment" ? "paid" : "stage"}`}>{sale.payment_status || stageOf(sale)}</span></td>
-                      <td><div className="customer-transaction-actions"><button className="part-detail-button" type="button" onClick={() => void openSaleDetail(sale)}><Eye size={13} /> Detail</button>{canEdit && sale.quotation_no && !sale.po_no && <button className="part-detail-button po" type="button" onClick={() => openDirectPo(sale)}><ShoppingBag size={13} /> PO Diterima</button>}{isAdmin && <button className="part-detail-button edit" type="button" onClick={() => openTransactionEdit(sale)}><Pencil size={13} /> Edit</button>}</div></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {editingSale && isAdmin && (
-        <div className="modal-backdrop" onMouseDown={() => !saving && setEditingSale(null)}>
-          <section className="modal transaction-edit-modal" role="dialog" aria-modal="true" aria-labelledby="transaction-edit-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head"><div><p className="eyebrow">EDIT TRANSAKSI · ADMIN</p><h2 id="transaction-edit-title">Perbarui transaksi customer</h2><p>{editingSale.customer} · {editingSale.invoice_no || editingSale.po_no || editingSale.project}</p></div><button className="icon-button" onClick={() => setEditingSale(null)} aria-label="Tutup"><X /></button></div>
-            <form onSubmit={saveTransactionEdit} className="sales-form transaction-edit-form">
-              <label className="wide">Customer<input required value={editSaleDraft.customer} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, customer: event.target.value })} /></label>
-              <label>Lokasi<input value={editSaleDraft.location} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, location: event.target.value })} /></label>
-              <label>Jenis transaksi<select value={editSaleDraft.transaction_type} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, transaction_type: event.target.value })}><option>Trading Part</option><option>Jasa</option><option>Pengadaan</option><option>Project</option></select></label>
-              <label className="wide">Proyek<input value={editSaleDraft.project} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, project: event.target.value })} /></label>
-              <label>No. RFQ<input value={editSaleDraft.rfq_no} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, rfq_no: event.target.value })} /></label>
-              <label>No. Quotation<input value={editSaleDraft.quotation_no} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, quotation_no: event.target.value })} /></label>
-              <label>No. PO<input value={editSaleDraft.po_no} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, po_no: event.target.value })} /></label>
-              <label>No. Surat Jalan<input value={editSaleDraft.delivery_no} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, delivery_no: event.target.value })} /></label>
-              <label>No. Invoice<input value={editSaleDraft.invoice_no} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, invoice_no: event.target.value })} /></label>
-              <label>Nilai Invoice<input type="number" min="0" step="0.01" value={editSaleDraft.invoice_amount} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, invoice_amount: Number(event.target.value) })} /></label>
-              <label>Nominal Terbayar<input type="number" min="0" max={Math.max(0, editSaleDraft.invoice_amount)} step="0.01" value={editSaleDraft.amount_paid} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, amount_paid: Number(event.target.value) })} /></label>
-              <label>Jatuh Tempo<input type="date" value={editSaleDraft.due_date} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, due_date: event.target.value })} /></label>
-              <label>Tanggal Pembayaran<input type="date" value={editSaleDraft.payment_date} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, payment_date: event.target.value })} /></label>
-              <label>Status Pembayaran<select value={editSaleDraft.payment_status} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, payment_status: event.target.value })}><option value="OPEN">OPEN</option><option value="CLOSED">CLOSED</option></select></label>
-              <label>Status Transaksi<input value={editSaleDraft.transaction_status} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, transaction_status: event.target.value })} placeholder="Open, Done Invoice, Closed…" /></label>
-              <label className="wide">Catatan<textarea value={editSaleDraft.notes} onChange={(event) => setEditSaleDraft({ ...editSaleDraft, notes: event.target.value })} /></label>
-              <div className="form-actions wide"><button type="button" className="secondary-button" onClick={() => setEditingSale(null)}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Menyimpan…" : "Simpan Perubahan"}</button></div>
-            </form>
-          </section>
-        </div>
-      )}
-
       {selected && (
         <div className="modal-backdrop" onMouseDown={() => setSelected(null)}>
           <section className="modal detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -2042,7 +1809,6 @@ export default function DashboardClient() {
               </section>
             )}
             <div className="form-actions">
-              {canEdit && selected.quotation_no && !selected.po_no && <button className="primary-button" disabled={saving} onClick={() => openDirectPo(selected)}><ShoppingBag size={17} /> PO Diterima</button>}
               {pendingPaymentBySale.has(selected.id)
                 ? <span className="payment-pending-badge"><Clock3 size={13} /> Pembayaran menunggu verifikasi Admin</span>
                 : canEdit && stageOf(selected) !== "Payment" && selected.invoice_no && <button className="primary-button" disabled={saving} onClick={() => openPaymentConfirmation(selected)}><CheckCircle2 size={17} /> Konfirmasi Pembayaran</button>}
@@ -2134,12 +1900,12 @@ function InvoiceTable({ rows, onSelect }: { rows: Sale[]; onSelect: (sale: Sale)
   );
 }
 
-function SalesTable({ rows, onSelect, onAcceptPo }: { rows: Sale[]; onSelect: (sale: Sale) => void; onAcceptPo?: (sale: Sale) => void }) {
+function SalesTable({ rows, onSelect }: { rows: Sale[]; onSelect: (sale: Sale) => void }) {
   return (
     <article className="panel full-table">
       <div className="section-head"><div><p className="eyebrow">DATA TRANSAKSI</p><h2>{rows.length} dokumen terpantau</h2><p className="section-note">Nomor PO atau invoice yang sama diringkas menjadi satu total. Klik untuk membuka rincian part.</p></div></div>
-      <div className="table-scroll"><table className="data-table sales-table"><thead><tr><th>Customer / Project</th><th>RFQ</th><th>Quotation</th><th>PO</th><th>Invoice</th><th>Total Transaksi</th><th>Tahap</th><th>Aksi</th></tr></thead><tbody>
-        {rows.map((sale) => <tr key={sale.id} tabIndex={0} onClick={() => onSelect(sale)} onKeyDown={(event) => event.key === "Enter" && onSelect(sale)}><td><b>{sale.customer}</b><small>{sale.project}</small></td><td>{sale.rfq_no || "—"}</td><td>{sale.quotation_no || "—"}</td><td>{sale.po_no || "—"}</td><td>{sale.invoice_no || "—"}</td><td className="number">{money.format(sale.invoice_amount)}</td><td><span className="status stage">{stageOf(sale)}</span></td><td>{onAcceptPo && sale.quotation_no && !sale.po_no ? <button className="part-detail-button po" type="button" onClick={(event) => { event.stopPropagation(); onAcceptPo(sale); }}><ShoppingBag size={13} /> PO Diterima</button> : <button className="part-detail-button" type="button" onClick={(event) => { event.stopPropagation(); onSelect(sale); }}><Eye size={13} /> Detail</button>}</td></tr>)}
+      <div className="table-scroll"><table className="data-table sales-table"><thead><tr><th>Customer / Project</th><th>RFQ</th><th>PO</th><th>Invoice</th><th>Total Tagihan</th><th>Tahap</th></tr></thead><tbody>
+        {rows.map((sale) => <tr key={sale.id} tabIndex={0} onClick={() => onSelect(sale)} onKeyDown={(event) => event.key === "Enter" && onSelect(sale)}><td><b>{sale.customer}</b><small>{sale.project}</small></td><td>{sale.rfq_no || "—"}</td><td>{sale.po_no || "—"}</td><td>{sale.invoice_no || "—"}</td><td className="number">{money.format(sale.invoice_amount)}</td><td><span className="status stage">{stageOf(sale)}</span></td></tr>)}
       </tbody></table></div>
     </article>
   );

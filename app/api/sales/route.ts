@@ -24,15 +24,6 @@ type InputRecord = {
   notes?: string;
 };
 
-type PoItem = {
-  spare_part_id?: number | null;
-  part_number?: string;
-  description?: string;
-  quantity?: number;
-  unit?: string;
-  unit_price?: number;
-};
-
 const schemaSql = `CREATE TABLE IF NOT EXISTS sales (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_key TEXT NOT NULL UNIQUE,
@@ -56,40 +47,6 @@ const schemaSql = `CREATE TABLE IF NOT EXISTS sales (
   updated_at TEXT NOT NULL
 )`;
 
-const poDocumentSchema = `CREATE TABLE IF NOT EXISTS sales_documents (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  document_type TEXT NOT NULL,
-  document_number TEXT NOT NULL UNIQUE,
-  customer TEXT NOT NULL,
-  customer_address TEXT NOT NULL DEFAULT '',
-  customer_pic TEXT NOT NULL DEFAULT '',
-  project TEXT NOT NULL DEFAULT '',
-  reference_no TEXT NOT NULL DEFAULT '',
-  document_date TEXT NOT NULL,
-  due_date TEXT NOT NULL DEFAULT '',
-  subtotal REAL NOT NULL DEFAULT 0,
-  tax_percent REAL NOT NULL DEFAULT 0,
-  tax_amount REAL NOT NULL DEFAULT 0,
-  grand_total REAL NOT NULL DEFAULT 0,
-  notes TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'RECEIVED',
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-)`;
-
-const poItemSchema = `CREATE TABLE IF NOT EXISTS sales_document_items (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  document_id INTEGER NOT NULL,
-  spare_part_id INTEGER,
-  part_number TEXT NOT NULL DEFAULT '',
-  description TEXT NOT NULL,
-  quantity REAL NOT NULL DEFAULT 1,
-  unit TEXT NOT NULL DEFAULT 'Pcs',
-  unit_price REAL NOT NULL DEFAULT 0,
-  line_total REAL NOT NULL DEFAULT 0,
-  FOREIGN KEY(document_id) REFERENCES sales_documents(id) ON DELETE CASCADE
-)`;
-
 const seed: InputRecord[] = [
   { source_key: "seed-001", customer: "Pertamina Port and Logistic", location: "Jakarta", transaction_type: "Pengadaan", project: "Jaket Brand Wood", rfq_no: "027/MDA-HO/RFQ/V/2025", quotation_no: "062/MDA/XII-2025", po_no: "1286/PPB/XII/25", delivery_no: "037/SJ-MDA/XII/2025", invoice_no: "017/MDA-INV/XII/2025", invoice_amount: 1084947300, amount_paid: 1084947300, due_date: "2025-12-05", payment_date: "2025-12-05", payment_status: "CLOSED", transaction_status: "Done Invoice", notes: "Pembayaran diterima." },
   { source_key: "seed-002", customer: "Kementrian PanRB", location: "Jakarta", transaction_type: "Pengadaan", project: "Seragam Brand Executive", rfq_no: "028/MDA-HO/RFQ/V/2025", quotation_no: "068/MDA/XII-2025", po_no: "EP-01KC0MZ6M6DV5W9V5TXVPBM33A", delivery_no: "034/SJ-MDA/XII/2025", invoice_no: "022/MDA-INV/XII/2025", invoice_amount: 929628330, amount_paid: 929628330, due_date: "2026-01-30", payment_date: "2026-01-30", payment_status: "CLOSED", transaction_status: "Done Invoice", notes: "Transaksi selesai." },
@@ -111,85 +68,11 @@ const getDb = async () => {
 async function ensureDatabase() {
   if (isSupabaseConfigured()) return;
   const db = await getDb();
-  await db.batch([
-    db.prepare(schemaSql),
-    db.prepare(poDocumentSchema),
-    db.prepare(poItemSchema),
-    db.prepare("CREATE INDEX IF NOT EXISTS sales_customer_idx ON sales(customer)"),
-    db.prepare("CREATE INDEX IF NOT EXISTS sales_due_date_idx ON sales(due_date)"),
-    db.prepare("CREATE INDEX IF NOT EXISTS sales_document_items_document_idx ON sales_document_items(document_id)"),
-  ]);
+  await db.prepare(schemaSql).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS sales_customer_idx ON sales(customer)").run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS sales_due_date_idx ON sales(due_date)").run();
   const count = await db.prepare("SELECT COUNT(*) AS total FROM sales").first<{ total: number }>();
   if (Number(count?.total ?? 0) === 0) await upsertRecords(seed);
-}
-
-async function savePoDocument(poNo: string, record: InputRecord, inputItems: PoItem[]) {
-  const items = inputItems.filter((item) => String(item.description || "").trim() && Number(item.quantity || 0) > 0);
-  if (!items.length) throw new Error("Tambahkan minimal satu produk pada PO.");
-  const subtotal = items.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.unit_price || 0)), 0);
-  const now = new Date().toISOString();
-  const document = {
-    document_type: "PURCHASE_ORDER",
-    document_number: poNo,
-    customer: String(record.customer || "").trim(),
-    customer_address: "",
-    customer_pic: "",
-    project: String(record.project || "").trim(),
-    reference_no: String(record.quotation_no || "").trim(),
-    document_date: now.slice(0, 10),
-    due_date: "",
-    subtotal,
-    tax_percent: 0,
-    tax_amount: 0,
-    grand_total: subtotal,
-    notes: String(record.notes || "").trim(),
-    status: "RECEIVED",
-    created_at: now,
-    updated_at: now,
-  };
-  if (isSupabaseConfigured()) {
-    const supabase = await createSupabaseServerClient();
-    const { data: saved, error: documentError } = await supabase.from("sales_documents")
-      .upsert(document, { onConflict: "document_number" }).select("id").single();
-    if (documentError || !saved) throw documentError ?? new Error("Detail PO gagal disimpan.");
-    const documentId = Number(saved.id);
-    const { error: deleteError } = await supabase.from("sales_document_items").delete().eq("document_id", documentId);
-    if (deleteError) throw deleteError;
-    const { error: itemError } = await supabase.from("sales_document_items").insert(items.map((item) => ({
-      document_id: documentId,
-      spare_part_id: item.spare_part_id ? Number(item.spare_part_id) : null,
-      part_number: String(item.part_number || "").trim(),
-      description: String(item.description || "").trim(),
-      quantity: Number(item.quantity || 0),
-      unit: String(item.unit || "Pcs").trim(),
-      unit_price: Math.max(0, Number(item.unit_price || 0)),
-      line_total: Number(item.quantity || 0) * Math.max(0, Number(item.unit_price || 0)),
-    })));
-    if (itemError) throw itemError;
-    return;
-  }
-  const db = await getDb();
-  await db.prepare(
-    `INSERT INTO sales_documents (
-      document_type, document_number, customer, customer_address, customer_pic, project,
-      reference_no, document_date, due_date, subtotal, tax_percent, tax_amount, grand_total,
-      notes, status, created_at, updated_at
-    ) VALUES (?, ?, ?, '', '', ?, ?, ?, '', ?, 0, 0, ?, ?, 'RECEIVED', ?, ?)
-    ON CONFLICT(document_number) DO UPDATE SET
-      document_type=excluded.document_type, customer=excluded.customer, project=excluded.project,
-      reference_no=excluded.reference_no, subtotal=excluded.subtotal, grand_total=excluded.grand_total,
-      notes=excluded.notes, status='RECEIVED', updated_at=excluded.updated_at`
-  ).bind("PURCHASE_ORDER", poNo, document.customer, document.project, document.reference_no,
-    document.document_date, subtotal, subtotal, document.notes, now, now).run();
-  const saved = await db.prepare("SELECT id FROM sales_documents WHERE document_number = ? LIMIT 1").bind(poNo).first<{ id: number }>();
-  if (!saved?.id) throw new Error("Detail PO gagal disimpan.");
-  await db.prepare("DELETE FROM sales_document_items WHERE document_id = ?").bind(saved.id).run();
-  await db.batch(items.map((item) => db.prepare(
-    `INSERT INTO sales_document_items (document_id, spare_part_id, part_number, description, quantity, unit, unit_price, line_total)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(saved.id, item.spare_part_id ? Number(item.spare_part_id) : null, String(item.part_number || "").trim(),
-    String(item.description || "").trim(), Number(item.quantity || 0), String(item.unit || "Pcs").trim(),
-    Math.max(0, Number(item.unit_price || 0)), Number(item.quantity || 0) * Math.max(0, Number(item.unit_price || 0)))));
 }
 
 const normalized = (record: InputRecord, index = 0) => {
@@ -292,44 +175,10 @@ export async function POST(request: NextRequest) {
     const access = await requireRole(request, ["ADMIN", "EDITOR"]);
     if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
-    const body = await request.json() as { action?: string; record?: InputRecord; records?: InputRecord[]; items?: PoItem[] };
-    let records = body.action === "import" ? body.records ?? [] : body.record ? [body.record] : [];
-    let directPo: InputRecord | null = null;
-    if (body.action === "add_po") {
-      const record = body.record ?? {};
-      const customer = String(record.customer || "").trim();
-      const project = String(record.project || "").trim();
-      const poNo = String(record.po_no || "").trim();
-      const poAmount = Number(record.invoice_amount || 0);
-      if (!customer || !project || !poNo || !Number.isFinite(poAmount) || poAmount < 0) {
-        return NextResponse.json({ error: "Customer, nomor PO, proyek, dan nilai PO wajib valid." }, { status: 400 });
-      }
-      if (isSupabaseConfigured()) {
-        const supabase = await createSupabaseServerClient();
-        const { data, error } = await supabase.from("sales").select("id").eq("po_no", poNo).limit(1);
-        if (error) throw error;
-        if (data?.length) return NextResponse.json({ error: `Nomor PO ${poNo} sudah terdaftar.` }, { status: 409 });
-      } else {
-        const existing = await (await getDb()).prepare("SELECT id FROM sales WHERE po_no = ? COLLATE NOCASE LIMIT 1").bind(poNo).first();
-        if (existing) return NextResponse.json({ error: `Nomor PO ${poNo} sudah terdaftar.` }, { status: 409 });
-      }
-      directPo = {
-        ...record,
-        customer,
-        project,
-        po_no: poNo,
-        rfq_no: "",
-        quotation_no: "",
-        amount_paid: 0,
-        payment_status: "OPEN",
-        transaction_status: "PO Diterima",
-        notes: String(record.notes || "").trim() || "PO masuk langsung tanpa RFQ.",
-      };
-      records = [directPo];
-    }
+    const body = await request.json() as { action?: string; record?: InputRecord; records?: InputRecord[] };
+    const records = body.action === "import" ? body.records ?? [] : body.record ? [body.record] : [];
     if (!records.length || records.length > 5000) return NextResponse.json({ error: "Invalid records" }, { status: 400 });
     await upsertRecords(records);
-    if (directPo) await savePoDocument(String(directPo.po_no), directPo, body.items ?? []);
     return NextResponse.json({ ok: true, imported: records.length });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to save data" }, { status: 500 });
@@ -338,104 +187,29 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const body = await request.json() as InputRecord & { action?: string; id?: number; record?: InputRecord; items?: PoItem[] };
-    const access = await requireRole(request, body.action === "accept_po" ? ["ADMIN", "EDITOR"] : ["ADMIN"]);
+    const access = await requireRole(request, ["ADMIN", "EDITOR"]);
     if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
+    const body = await request.json() as { id?: number; amount_paid?: number; payment_status?: string };
     if (!body.id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-    if (body.action === "accept_po") {
-      const record = body.record ?? {};
-      const poNo = String(record.po_no || "").trim();
-      const poAmount = Number(record.invoice_amount || 0);
-      if (!poNo || !Number.isFinite(poAmount) || poAmount < 0 || !(body.items ?? []).length) {
-        return NextResponse.json({ error: "Nomor PO, nilai PO, dan detail produk wajib valid." }, { status: 400 });
-      }
-      const now = new Date().toISOString();
-      if (isSupabaseConfigured()) {
-        const supabase = await createSupabaseServerClient();
-        const [{ data: current, error: currentError }, { data: duplicate, error: duplicateError }] = await Promise.all([
-          supabase.from("sales").select("id,customer,location,transaction_type,project,rfq_no,quotation_no,po_no,notes").eq("id", Number(body.id)).single(),
-          supabase.from("sales").select("id").eq("po_no", poNo).neq("id", Number(body.id)).limit(1),
-        ]);
-        if (currentError || !current) throw currentError ?? new Error("Quotation tidak ditemukan.");
-        if (duplicateError) throw duplicateError;
-        if (duplicate?.length) return NextResponse.json({ error: `Nomor PO ${poNo} sudah terdaftar.` }, { status: 409 });
-        if (!current.quotation_no) return NextResponse.json({ error: "Transaksi ini belum memiliki quotation." }, { status: 400 });
-        if (current.po_no) return NextResponse.json({ error: `Quotation ini sudah memiliki PO ${current.po_no}.` }, { status: 409 });
-        const notes = String(record.notes || current.notes || "").trim();
-        const { error: updateError } = await supabase.from("sales").update({
-          po_no: poNo,
-          invoice_amount: poAmount,
-          transaction_status: "PO Diterima",
-          notes,
-          updated_at: now,
-        }).eq("id", Number(body.id));
-        if (updateError) throw updateError;
-        await savePoDocument(poNo, { ...current, ...record, po_no: poNo, invoice_amount: poAmount, notes }, body.items ?? []);
-        return NextResponse.json({ ok: true });
-      }
-      const db = await getDb();
-      const current = await db.prepare(
-        "SELECT id, customer, location, transaction_type, project, rfq_no, quotation_no, po_no, notes FROM sales WHERE id = ?"
-      ).bind(Number(body.id)).first<InputRecord & { id: number }>();
-      if (!current) return NextResponse.json({ error: "Quotation tidak ditemukan." }, { status: 404 });
-      const duplicate = await db.prepare("SELECT id FROM sales WHERE po_no = ? COLLATE NOCASE AND id <> ? LIMIT 1").bind(poNo, Number(body.id)).first();
-      if (duplicate) return NextResponse.json({ error: `Nomor PO ${poNo} sudah terdaftar.` }, { status: 409 });
-      if (!current.quotation_no) return NextResponse.json({ error: "Transaksi ini belum memiliki quotation." }, { status: 400 });
-      if (current.po_no) return NextResponse.json({ error: `Quotation ini sudah memiliki PO ${current.po_no}.` }, { status: 409 });
-      const notes = String(record.notes || current.notes || "").trim();
-      await db.prepare(
-        "UPDATE sales SET po_no = ?, invoice_amount = ?, transaction_status = 'PO Diterima', notes = ?, updated_at = ? WHERE id = ?"
-      ).bind(poNo, poAmount, notes, now, Number(body.id)).run();
-      await savePoDocument(poNo, { ...current, ...record, po_no: poNo, invoice_amount: poAmount, notes }, body.items ?? []);
-      return NextResponse.json({ ok: true });
-    }
-    const customer = String(body.customer || "").trim();
-    const project = String(body.project || "").trim();
-    const invoiceAmount = Math.max(0, Number(body.invoice_amount || 0));
-    const amountPaid = Math.max(0, Number(body.amount_paid || 0));
-    if (!customer || !Number.isFinite(invoiceAmount) || !Number.isFinite(amountPaid)) {
-      return NextResponse.json({ error: "Customer dan nominal transaksi wajib valid." }, { status: 400 });
-    }
-    if (amountPaid > invoiceAmount && invoiceAmount > 0) {
-      return NextResponse.json({ error: "Nominal terbayar tidak boleh melebihi nilai invoice." }, { status: 400 });
-    }
-    const updatedAt = new Date().toISOString();
-    const payload = {
-      customer,
-      location: String(body.location || "").trim(),
-      transaction_type: String(body.transaction_type || "").trim(),
-      project,
-      rfq_no: String(body.rfq_no || "").trim(),
-      quotation_no: String(body.quotation_no || "").trim(),
-      po_no: String(body.po_no || "").trim(),
-      delivery_no: String(body.delivery_no || "").trim(),
-      invoice_no: String(body.invoice_no || "").trim(),
-      invoice_amount: invoiceAmount,
-      amount_paid: amountPaid,
-      due_date: String(body.due_date || "").trim(),
-      payment_date: String(body.payment_date || "").trim(),
-      payment_status: String(body.payment_status || "OPEN").toUpperCase() === "CLOSED" ? "CLOSED" : "OPEN",
-      transaction_status: String(body.transaction_status || "").trim(),
-      notes: String(body.notes || "").trim(),
-      updated_at: updatedAt,
-    };
     if (isSupabaseConfigured()) {
       const supabase = await createSupabaseServerClient();
-      const { error } = await supabase.from("sales").update(payload).eq("id", Number(body.id));
+      const { error } = await supabase.from("sales").update({
+        amount_paid: Number(body.amount_paid || 0),
+        payment_status: String(body.payment_status || "OPEN"),
+        payment_date: body.payment_status === "CLOSED" ? new Date().toISOString().slice(0, 10) : "",
+        updated_at: new Date().toISOString(),
+      }).eq("id", Number(body.id));
       if (error) throw error;
       return NextResponse.json({ ok: true });
     }
     await (await getDb()).prepare(
-      `UPDATE sales SET customer = ?, location = ?, transaction_type = ?, project = ?, rfq_no = ?,
-       quotation_no = ?, po_no = ?, delivery_no = ?, invoice_no = ?, invoice_amount = ?,
-       amount_paid = ?, due_date = ?, payment_date = ?, payment_status = ?, transaction_status = ?,
-       notes = ?, updated_at = ? WHERE id = ?`
+      "UPDATE sales SET amount_paid = ?, payment_status = ?, payment_date = ?, updated_at = ? WHERE id = ?"
     ).bind(
-      payload.customer, payload.location, payload.transaction_type, payload.project, payload.rfq_no,
-      payload.quotation_no, payload.po_no, payload.delivery_no, payload.invoice_no, payload.invoice_amount,
-      payload.amount_paid, payload.due_date, payload.payment_date, payload.payment_status,
-      payload.transaction_status, payload.notes, payload.updated_at,
+      Number(body.amount_paid || 0),
+      String(body.payment_status || "OPEN"),
+      body.payment_status === "CLOSED" ? new Date().toISOString().slice(0, 10) : "",
+      new Date().toISOString(),
       Number(body.id)
     ).run();
     return NextResponse.json({ ok: true });
