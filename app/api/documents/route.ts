@@ -168,7 +168,7 @@ async function nextDocumentNumber(type: DocumentType, date: string, requestedSeq
         : { results: [] as { quotation_no?: string; delivery_no?: string }[] };
       const used = [
         ...documents.results.map((document) => sequenceFromNumber(document.document_number, year)),
-        ...sales.results.flatMap((sale) =>
+        ...(sales.results as { quotation_no?: string; delivery_no?: string }[]).flatMap((sale) =>
           String(type === "DELIVERY_NOTE" ? sale.delivery_no || "" : sale.quotation_no || "")
             .split(",")
             .map((value) => sequenceFromNumber(value, year))
@@ -695,6 +695,200 @@ async function updateDocumentContent(body: DocumentPatchInput) {
     }
   }
   return NextResponse.json({ ok: true, id, document_number: current.document_number, delivery_complete: deliveryComplete });
+}
+
+const withoutDocumentNumber = (value: unknown, removed: string) => String(value || "")
+  .split(",")
+  .map((item) => item.trim())
+  .filter((item) => item && item.toLowerCase() !== removed.trim().toLowerCase())
+  .join(", ");
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const access = await requireRole(request, ["ADMIN"]);
+    if (access.error || !access.identity) return NextResponse.json({ error: access.error }, { status: access.status });
+    await ensureDatabase();
+    const body = await request.json() as { id?: number };
+    const id = Number(body.id || 0);
+    if (!id) return NextResponse.json({ error: "Dokumen yang akan dihapus belum dipilih." }, { status: 400 });
+
+    if (isSupabaseConfigured()) {
+      const supabase = await createSupabaseServerClient();
+      const { data: current, error: currentError } = await supabase.from("sales_documents").select("*").eq("id", id).maybeSingle();
+      if (currentError) throw currentError;
+      if (!current) return NextResponse.json({ error: "Dokumen tidak ditemukan." }, { status: 404 });
+      const type = String(current.document_type);
+      const documentNumber = String(current.document_number || "");
+      if (type === "PURCHASE_ORDER") return NextResponse.json({ error: "PO diterima dikelola dari transaksi penjualan dan tidak dapat dihapus dari riwayat dokumen." }, { status: 400 });
+
+      let linkedSale: Record<string, unknown> | null = null;
+      if (type === "DELIVERY_NOTE") {
+        const { data: sales, error: saleError } = await supabase.from("sales")
+          .select("id,quotation_no,po_no,delivery_no,invoice_no").eq("po_no", String(current.reference_no || "")).limit(1);
+        if (saleError) throw saleError;
+        linkedSale = sales?.[0] ?? null;
+        if (String(linkedSale?.invoice_no || "").trim()) {
+          return NextResponse.json({ error: "Surat jalan sudah terhubung ke invoice. Hapus invoice lebih dahulu." }, { status: 409 });
+        }
+      } else if (type === "QUOTATION") {
+        const { data: sales, error: saleError } = await supabase.from("sales")
+          .select("id,source_key,po_no,delivery_no,invoice_no,amount_paid").eq("quotation_no", documentNumber).limit(1);
+        if (saleError) throw saleError;
+        linkedSale = sales?.[0] ?? null;
+        if (linkedSale && (String(linkedSale.delivery_no || "").trim() || String(linkedSale.invoice_no || "").trim() || Number(linkedSale.amount_paid || 0) > 0)) {
+          return NextResponse.json({ error: "Quotation sudah memiliki surat jalan, invoice, atau pembayaran. Hapus dokumen lanjutan terlebih dahulu." }, { status: 409 });
+        }
+      } else if (type === "INVOICE") {
+        const { data: sales, error: saleError } = await supabase.from("sales")
+          .select("id,delivery_no,po_no,amount_paid").eq("invoice_no", documentNumber).limit(1);
+        if (saleError) throw saleError;
+        linkedSale = sales?.[0] ?? null;
+        if (Number(linkedSale?.amount_paid || 0) > 0) {
+          return NextResponse.json({ error: "Invoice sudah memiliki pembayaran dan tidak dapat dihapus." }, { status: 409 });
+        }
+        if (linkedSale) {
+          const { data: confirmations, error: confirmationError } = await supabase.from("payment_confirmations")
+            .select("id").eq("sale_id", Number(linkedSale.id)).in("status", ["PENDING", "APPROVED"]).limit(1);
+          if (confirmationError) throw confirmationError;
+          if (confirmations?.length) return NextResponse.json({ error: "Invoice memiliki konfirmasi pembayaran aktif dan tidak dapat dihapus." }, { status: 409 });
+        }
+      }
+
+      const { error: itemError } = await supabase.from("sales_document_items").delete().eq("document_id", id);
+      if (itemError) throw itemError;
+      const { error: documentError } = await supabase.from("sales_documents").delete().eq("id", id);
+      if (documentError) throw documentError;
+      const now = new Date().toISOString();
+
+      if (type === "DELIVERY_NOTE" && linkedSale) {
+        const referenceNo = String(current.reference_no || "");
+        const [{ data: remainingDocuments, error: remainingError }, { data: poDocuments, error: poError }] = await Promise.all([
+          supabase.from("sales_documents").select("id,document_number").eq("document_type", "DELIVERY_NOTE").eq("reference_no", referenceNo),
+          supabase.from("sales_documents").select("id").eq("document_type", "PURCHASE_ORDER").eq("document_number", referenceNo).limit(1),
+        ]);
+        if (remainingError) throw remainingError;
+        if (poError) throw poError;
+        let sourceDocumentId = Number(poDocuments?.[0]?.id || 0);
+        if (!sourceDocumentId && linkedSale.quotation_no) {
+          const { data: quotations, error: quotationError } = await supabase.from("sales_documents")
+            .select("id").eq("document_type", "QUOTATION").eq("document_number", String(linkedSale.quotation_no)).limit(1);
+          if (quotationError) throw quotationError;
+          sourceDocumentId = Number(quotations?.[0]?.id || 0);
+        }
+        const remainingIds = (remainingDocuments ?? []).map((document) => Number(document.id));
+        let complete = false;
+        if (sourceDocumentId && remainingIds.length) {
+          const [{ data: ordered, error: orderedError }, { data: delivered, error: deliveredError }] = await Promise.all([
+            supabase.from("sales_document_items").select("spare_part_id,part_number,description,quantity,unit").eq("document_id", sourceDocumentId),
+            supabase.from("sales_document_items").select("spare_part_id,part_number,description,quantity,unit").in("document_id", remainingIds),
+          ]);
+          if (orderedError) throw orderedError;
+          if (deliveredError) throw deliveredError;
+          complete = validateDeliveryQuantities(ordered ?? [], delivered ?? [], []);
+        }
+        const deliveryNo = withoutDocumentNumber(linkedSale.delivery_no, documentNumber);
+        const { error: saleUpdateError } = await supabase.from("sales").update({
+          delivery_no: deliveryNo,
+          transaction_status: !remainingIds.length ? "PO Diterima" : complete ? "Terkirim - Siap Invoice" : "Dikirim Partial",
+          updated_at: now,
+        }).eq("id", Number(linkedSale.id));
+        if (saleUpdateError) throw saleUpdateError;
+      } else if (type === "QUOTATION" && linkedSale) {
+        const poNo = String(linkedSale.po_no || "").trim();
+        if (poNo) {
+          const { data: poDocuments, error: poReadError } = await supabase.from("sales_documents").select("id").eq("document_type", "PURCHASE_ORDER").eq("document_number", poNo);
+          if (poReadError) throw poReadError;
+          const poIds = (poDocuments ?? []).map((document) => Number(document.id));
+          if (poIds.length) {
+            const { error: poItemError } = await supabase.from("sales_document_items").delete().in("document_id", poIds);
+            if (poItemError) throw poItemError;
+            const { error: poDeleteError } = await supabase.from("sales_documents").delete().in("id", poIds);
+            if (poDeleteError) throw poDeleteError;
+          }
+        }
+        const { error: saleDeleteError } = await supabase.from("sales").delete().eq("id", Number(linkedSale.id));
+        if (saleDeleteError) throw saleDeleteError;
+      } else if (type === "INVOICE" && linkedSale) {
+        const deliveryNo = String(linkedSale.delivery_no || "").trim();
+        const poNo = String(linkedSale.po_no || "").trim();
+        const { error: saleUpdateError } = await supabase.from("sales").update({
+          invoice_no: "", invoice_amount: 0, due_date: "", payment_date: "", payment_status: "OPEN",
+          transaction_status: deliveryNo ? "Terkirim - Siap Invoice" : poNo ? "PO Diterima" : "Open", updated_at: now,
+        }).eq("id", Number(linkedSale.id));
+        if (saleUpdateError) throw saleUpdateError;
+      }
+      return NextResponse.json({ ok: true, document_number: documentNumber });
+    }
+
+    const db = await getDb();
+    const current = await db.prepare("SELECT * FROM sales_documents WHERE id = ? LIMIT 1").bind(id).first<Record<string, unknown>>();
+    if (!current) return NextResponse.json({ error: "Dokumen tidak ditemukan." }, { status: 404 });
+    const type = String(current.document_type);
+    const documentNumber = String(current.document_number || "");
+    if (type === "PURCHASE_ORDER") return NextResponse.json({ error: "PO diterima dikelola dari transaksi penjualan dan tidak dapat dihapus dari riwayat dokumen." }, { status: 400 });
+    const salesExists = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sales'").first();
+    let linkedSale: Record<string, unknown> | null = null;
+    if (salesExists && type === "DELIVERY_NOTE") {
+      linkedSale = await db.prepare("SELECT id, quotation_no, po_no, delivery_no, invoice_no FROM sales WHERE po_no = ? COLLATE NOCASE LIMIT 1")
+        .bind(String(current.reference_no || "")).first<Record<string, unknown>>();
+      if (String(linkedSale?.invoice_no || "").trim()) return NextResponse.json({ error: "Surat jalan sudah terhubung ke invoice. Hapus invoice lebih dahulu." }, { status: 409 });
+    } else if (salesExists && type === "QUOTATION") {
+      linkedSale = await db.prepare("SELECT id, source_key, po_no, delivery_no, invoice_no, amount_paid FROM sales WHERE quotation_no = ? COLLATE NOCASE LIMIT 1")
+        .bind(documentNumber).first<Record<string, unknown>>();
+      if (linkedSale && (String(linkedSale.delivery_no || "").trim() || String(linkedSale.invoice_no || "").trim() || Number(linkedSale.amount_paid || 0) > 0)) {
+        return NextResponse.json({ error: "Quotation sudah memiliki surat jalan, invoice, atau pembayaran. Hapus dokumen lanjutan terlebih dahulu." }, { status: 409 });
+      }
+    } else if (salesExists && type === "INVOICE") {
+      linkedSale = await db.prepare("SELECT id, delivery_no, po_no, amount_paid FROM sales WHERE invoice_no = ? COLLATE NOCASE LIMIT 1")
+        .bind(documentNumber).first<Record<string, unknown>>();
+      if (Number(linkedSale?.amount_paid || 0) > 0) return NextResponse.json({ error: "Invoice sudah memiliki pembayaran dan tidak dapat dihapus." }, { status: 409 });
+      if (linkedSale) {
+        const paymentsExist = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='payment_confirmations'").first();
+        const confirmation = paymentsExist ? await db.prepare("SELECT id FROM payment_confirmations WHERE sale_id = ? AND status IN ('PENDING', 'APPROVED') LIMIT 1").bind(Number(linkedSale.id)).first() : null;
+        if (confirmation) return NextResponse.json({ error: "Invoice memiliki konfirmasi pembayaran aktif dan tidak dapat dihapus." }, { status: 409 });
+      }
+    }
+
+    await db.batch([
+      db.prepare("DELETE FROM sales_document_items WHERE document_id = ?").bind(id),
+      db.prepare("DELETE FROM sales_documents WHERE id = ?").bind(id),
+    ]);
+    const now = new Date().toISOString();
+    if (type === "DELIVERY_NOTE" && linkedSale) {
+      const referenceNo = String(current.reference_no || "");
+      let sourceDocument = await db.prepare("SELECT id FROM sales_documents WHERE document_type = 'PURCHASE_ORDER' AND document_number = ? COLLATE NOCASE LIMIT 1").bind(referenceNo).first<{ id: number }>();
+      if (!sourceDocument && linkedSale.quotation_no) sourceDocument = await db.prepare("SELECT id FROM sales_documents WHERE document_type = 'QUOTATION' AND document_number = ? COLLATE NOCASE LIMIT 1").bind(String(linkedSale.quotation_no)).first<{ id: number }>();
+      const remainingDocuments = await db.prepare("SELECT id FROM sales_documents WHERE document_type = 'DELIVERY_NOTE' AND reference_no = ? COLLATE NOCASE").bind(referenceNo).all<{ id: number }>();
+      let complete = false;
+      if (sourceDocument && remainingDocuments.results.length) {
+        const ordered = await db.prepare("SELECT spare_part_id, part_number, description, quantity, unit FROM sales_document_items WHERE document_id = ?").bind(sourceDocument.id).all<DocumentItem>();
+        const placeholders = remainingDocuments.results.map(() => "?").join(",");
+        const delivered = await db.prepare(`SELECT spare_part_id, part_number, description, quantity, unit FROM sales_document_items WHERE document_id IN (${placeholders})`).bind(...remainingDocuments.results.map((document) => document.id)).all<DocumentItem>();
+        complete = validateDeliveryQuantities(ordered.results, delivered.results, []);
+      }
+      await db.prepare("UPDATE sales SET delivery_no = ?, transaction_status = ?, updated_at = ? WHERE id = ?")
+        .bind(withoutDocumentNumber(linkedSale.delivery_no, documentNumber), !remainingDocuments.results.length ? "PO Diterima" : complete ? "Terkirim - Siap Invoice" : "Dikirim Partial", now, Number(linkedSale.id)).run();
+    } else if (type === "QUOTATION" && linkedSale) {
+      const poNo = String(linkedSale.po_no || "").trim();
+      if (poNo) {
+        const poDocuments = await db.prepare("SELECT id FROM sales_documents WHERE document_type = 'PURCHASE_ORDER' AND document_number = ? COLLATE NOCASE").bind(poNo).all<{ id: number }>();
+        for (const poDocument of poDocuments.results) {
+          await db.batch([
+            db.prepare("DELETE FROM sales_document_items WHERE document_id = ?").bind(poDocument.id),
+            db.prepare("DELETE FROM sales_documents WHERE id = ?").bind(poDocument.id),
+          ]);
+        }
+      }
+      await db.prepare("DELETE FROM sales WHERE id = ?").bind(Number(linkedSale.id)).run();
+    } else if (type === "INVOICE" && linkedSale) {
+      const status = String(linkedSale.delivery_no || "").trim() ? "Terkirim - Siap Invoice" : String(linkedSale.po_no || "").trim() ? "PO Diterima" : "Open";
+      await db.prepare("UPDATE sales SET invoice_no = '', invoice_amount = 0, due_date = '', payment_date = '', payment_status = 'OPEN', transaction_status = ?, updated_at = ? WHERE id = ?")
+        .bind(status, now, Number(linkedSale.id)).run();
+    }
+    return NextResponse.json({ ok: true, document_number: documentNumber });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Dokumen belum berhasil dihapus." }, { status: 500 });
+  }
 }
 
 export async function PATCH(request: NextRequest) {

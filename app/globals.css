@@ -304,6 +304,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .row-actions > button.danger:hover { background: var(--red-soft); }
 .row-actions > button.convert-button { min-width: 82px; color: var(--red); border-color: #f3cdd0; }
 .row-actions > button.quotation-number-edit { min-width: 72px; border-color: #d8e4f7; background: #f4f8ff; color: var(--blue); }
+.row-actions > button.document-delete { min-width: 68px; border-color: #f0cfd1; background: #fff7f7; color: var(--red); }
+.row-actions > button.document-delete:hover { border-color: var(--red); background: var(--red-soft); color: var(--red); }
 .row-actions > button.convert-button.po-convert { border-color: #d9d2f3; background: #f6f2ff; color: var(--purple); }
 .row-actions > button.convert-button.delivery-convert { min-width: 112px; border-color: #f0d3a8; background: #fff8ed; color: #bd6d08; }
 .quotation-select-link { display: grid; gap: 2px; padding: 0; border: 0; background: transparent; color: var(--purple); text-align: left; cursor: pointer; }
@@ -425,6 +427,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .reject-button, .approve-button { min-height: 42px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 10px; font-size: 11px; font-weight: 750; cursor: pointer; }
 .reject-button { border: 1px solid #f0cfd1; background: #fff; color: var(--red); }.approve-button { border: 0; background: var(--green); color: #fff; box-shadow: 0 6px 14px rgba(62,164,90,.18); }
 .reject-button:disabled, .approve-button:disabled { opacity: .55; cursor: wait; }
+.document-delete-modal { max-width: 570px; }
+.document-delete-warning { margin: 8px 0 22px; padding: 16px; display: flex; align-items: flex-start; gap: 12px; border: 1px solid #f0cfd1; border-radius: 12px; background: #fff7f7; color: var(--red); }
+.document-delete-warning svg { flex: 0 0 auto; margin-top: 1px; }
+.document-delete-warning b { display: block; color: var(--secondary); font-size: 13px; }
+.document-delete-warning p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.document-delete-confirm { background: var(--red); color: #fff; border-color: var(--red); box-shadow: 0 6px 14px rgba(239,35,49,.18); }
 .detail-modal { width: min(680px, 100%); }
 .detail-timeline { display: flex; justify-content: space-between; position: relative; padding: 24px 8px 20px; }
 .detail-timeline::before { content: ""; position: absolute; left: 35px; right: 35px; top: 38px; height: 2px; background: var(--border); }

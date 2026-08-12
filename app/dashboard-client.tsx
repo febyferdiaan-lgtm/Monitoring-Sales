@@ -432,6 +432,7 @@ export default function DashboardClient() {
   const [editSaleDraft, setEditSaleDraft] = useState<DraftSale>(emptyDraft);
   const [selectedDocument, setSelectedDocument] = useState<SalesDocument | null>(null);
   const [editingDocument, setEditingDocument] = useState<SalesDocument | null>(null);
+  const [deletingDocument, setDeletingDocument] = useState<SalesDocument | null>(null);
   const [editingQuotationDocument, setEditingQuotationDocument] = useState<SalesDocument | null>(null);
   const [quotationSequenceDraft, setQuotationSequenceDraft] = useState("");
   const [editingDeliveryDocument, setEditingDeliveryDocument] = useState<SalesDocument | null>(null);
@@ -1363,6 +1364,28 @@ export default function DashboardClient() {
     window.setTimeout(() => window.print(), 120);
   };
 
+  const deleteDocument = async () => {
+    if (!deletingDocument || !isAdmin) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/documents", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: deletingDocument.id }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Dokumen belum berhasil dihapus.");
+      setDeletingDocument(null);
+      setSelectedDocument(null);
+      setNotice(`Dokumen ${payload.document_number} berhasil dihapus dan data transaksi telah disinkronkan.`);
+      await Promise.all([loadBusinessData(), loadSales()]);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Dokumen belum berhasil dihapus.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const deliveryProgressFor = (quotation: SalesDocument, poNo: string) => {
     const delivered = new Map<string, number>();
     const deliveryDocuments = documents.filter((document) => document.document_type === "DELIVERY_NOTE" && document.reference_no.trim().toLowerCase() === poNo.trim().toLowerCase());
@@ -1967,7 +1990,7 @@ export default function DashboardClient() {
                     <td><b>{document.customer}</b><small>{document.project || `${document.items.length} item`}</small></td>
                     <td>{document.document_date}</td>
                     <td className="number"><strong>{document.document_type === "DELIVERY_NOTE" ? `${document.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)} item` : money.format(document.grand_total)}</strong></td>
-                    <td><div className="row-actions"><button aria-label="Lihat dokumen" onClick={() => setSelectedDocument(document)}><FileText size={15} /></button><button aria-label="Cetak dokumen" onClick={() => printDocument(document)}><Printer size={15} /></button>{isAdmin && document.document_type !== "PURCHASE_ORDER" && <button className="quotation-number-edit document-content-edit" onClick={() => openDocumentEdit(document)}><Pencil size={13} /> Edit Isi</button>}{isAdmin && document.document_type === "QUOTATION" && <button className="quotation-number-edit" onClick={() => openQuotationNumberEdit(document)}><Pencil size={13} /> No. Quot</button>}{canEdit && document.document_type === "DELIVERY_NOTE" && <button className="quotation-number-edit delivery-number-edit" onClick={() => openDeliveryNumberEdit(document)}><Pencil size={13} /> No. SJ</button>}{canEdit && document.document_type === "QUOTATION" && !linkedSale?.po_no && <button className="convert-button po-convert" onClick={() => openPoFromQuotationDocument(document)}><ShoppingBag size={13} /> PO Diterima</button>}{linkedSale?.po_no && document.document_type === "QUOTATION" && <span className="po-linked-badge"><CheckCircle2 size={12} /> PO Diterima</span>}{canEdit && document.document_type === "QUOTATION" && linkedSale?.po_no && !deliveryProgress?.complete && <button className="convert-button delivery-convert" onClick={() => openDeliveryForm(document, linkedSale)}><Truck size={13} /> {deliveryProgress?.hasDelivery ? "Kirim Sisa" : "Siapkan Pengiriman"}</button>}{document.document_type === "QUOTATION" && deliveryProgress?.complete && <span className="delivery-complete-badge"><CheckCircle2 size={12} /> Terkirim {deliveryProgress.shippedQuantity}/{deliveryProgress.orderedQuantity}</span>}{canEdit && document.document_type === "DELIVERY_NOTE" && <button className="convert-button" onClick={() => openDocumentForm("INVOICE", document)}><ReceiptText size={13} /> Jadi Invoice</button>}</div></td>
+                    <td><div className="row-actions"><button aria-label="Lihat dokumen" onClick={() => setSelectedDocument(document)}><FileText size={15} /></button><button aria-label="Cetak dokumen" onClick={() => printDocument(document)}><Printer size={15} /></button>{isAdmin && document.document_type !== "PURCHASE_ORDER" && <button className="quotation-number-edit document-content-edit" onClick={() => openDocumentEdit(document)}><Pencil size={13} /> Edit</button>}{isAdmin && document.document_type !== "PURCHASE_ORDER" && <button className="document-delete" onClick={() => setDeletingDocument(document)}><Trash2 size={13} /> Hapus</button>}{isAdmin && document.document_type === "QUOTATION" && <button className="quotation-number-edit" onClick={() => openQuotationNumberEdit(document)}><Pencil size={13} /> No. Quot</button>}{canEdit && document.document_type === "DELIVERY_NOTE" && <button className="quotation-number-edit delivery-number-edit" onClick={() => openDeliveryNumberEdit(document)}><Pencil size={13} /> No. SJ</button>}{canEdit && document.document_type === "QUOTATION" && !linkedSale?.po_no && <button className="convert-button po-convert" onClick={() => openPoFromQuotationDocument(document)}><ShoppingBag size={13} /> PO Diterima</button>}{linkedSale?.po_no && document.document_type === "QUOTATION" && <span className="po-linked-badge"><CheckCircle2 size={12} /> PO Diterima</span>}{canEdit && document.document_type === "QUOTATION" && linkedSale?.po_no && !deliveryProgress?.complete && <button className="convert-button delivery-convert" onClick={() => openDeliveryForm(document, linkedSale)}><Truck size={13} /> {deliveryProgress?.hasDelivery ? "Kirim Sisa" : "Siapkan Pengiriman"}</button>}{document.document_type === "QUOTATION" && deliveryProgress?.complete && <span className="delivery-complete-badge"><CheckCircle2 size={12} /> Terkirim {deliveryProgress.shippedQuantity}/{deliveryProgress.orderedQuantity}</span>}{canEdit && document.document_type === "DELIVERY_NOTE" && <button className="convert-button" onClick={() => openDocumentForm("INVOICE", document)}><ReceiptText size={13} /> Jadi Invoice</button>}</div></td>
                   </tr>;
                 })}
                 {!documents.length && <tr><td colSpan={6} className="empty-state">Belum ada quotation, surat jalan, atau invoice yang dibuat dari aplikasi.</td></tr>}
@@ -2144,6 +2167,16 @@ export default function DashboardClient() {
               <label className="wide">Catatan<textarea value={partDraft.notes} onChange={(e) => setPartDraft({ ...partDraft, notes: e.target.value })} placeholder="Spesifikasi, lead time, atau informasi tambahan" /></label>
               <div className="form-actions wide"><button type="button" className="secondary-button" onClick={() => setShowPart(false)}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Menyimpan…" : editingPartId ? "Simpan Perubahan" : "Daftarkan Sparepart"}</button></div>
             </form>
+          </section>
+        </div>
+      )}
+
+      {deletingDocument && isAdmin && (
+        <div className="modal-backdrop" onMouseDown={() => !saving && setDeletingDocument(null)}>
+          <section className="modal document-delete-modal" role="alertdialog" aria-modal="true" aria-labelledby="document-delete-title" aria-describedby="document-delete-description" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head"><div><p className="eyebrow">ADMIN · HAPUS DOKUMEN</p><h2 id="document-delete-title">Hapus dokumen ini?</h2><p>{deletingDocument.document_number}</p></div><button className="icon-button" disabled={saving} onClick={() => setDeletingDocument(null)} aria-label="Tutup"><X /></button></div>
+            <div className="document-delete-warning" id="document-delete-description"><AlertTriangle size={22} /><div><b>{deletingDocument.customer} · {deletingDocument.project || "Tanpa nama proyek"}</b><p>Dokumen dan seluruh item di dalamnya akan dihapus permanen. Summary serta status transaksi terkait akan dihitung ulang. Dokumen yang sudah memiliki invoice atau pembayaran akan ditolak demi keamanan data.</p></div></div>
+            <div className="form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => setDeletingDocument(null)}>Batal</button><button type="button" className="reject-button document-delete-confirm" disabled={saving} onClick={() => void deleteDocument()}><Trash2 size={16} /> {saving ? "Menghapus…" : "Hapus Permanen"}</button></div>
           </section>
         </div>
       )}
