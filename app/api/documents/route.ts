@@ -28,6 +28,12 @@ type DocumentInput = {
   items?: DocumentItem[];
 };
 
+type DocumentPatchInput = DocumentInput & {
+  id?: number;
+  action?: "update_content";
+  document_number?: string;
+};
+
 const documentSchema = `CREATE TABLE IF NOT EXISTS sales_documents (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   document_type TEXT NOT NULL,
@@ -490,12 +496,217 @@ export async function POST(request: NextRequest) {
   }
 }
 
+async function updateDocumentContent(body: DocumentPatchInput) {
+  const id = Number(body.id || 0);
+  const customer = String(body.customer || "").trim();
+  const items = (body.items ?? []).filter((item) => String(item.description || "").trim() && Number(item.quantity || 0) > 0);
+  if (!id || !customer || !items.length) {
+    return NextResponse.json({ error: "Customer dan minimal satu item wajib diisi." }, { status: 400 });
+  }
+
+  if (isSupabaseConfigured()) {
+    const supabase = await createSupabaseServerClient();
+    const { data: current, error: currentError } = await supabase.from("sales_documents")
+      .select("*").eq("id", id).single();
+    if (currentError || !current) return NextResponse.json({ error: "Dokumen tidak ditemukan." }, { status: 404 });
+    const type = String(current.document_type) as DocumentType;
+    if (!(["QUOTATION", "DELIVERY_NOTE", "INVOICE"] as string[]).includes(type)) {
+      return NextResponse.json({ error: "Jenis dokumen ini tidak dapat diedit melalui formulir." }, { status: 400 });
+    }
+    const referenceNo = type === "DELIVERY_NOTE" ? String(current.reference_no || "").trim() : String(body.reference_no ?? current.reference_no ?? "").trim();
+    let deliveryComplete = false;
+    let deliverySale: { id: number; invoice_no?: string } | null = null;
+    if (type === "DELIVERY_NOTE") {
+      const [{ data: poDocuments, error: poError }, { data: saleRows, error: saleError }, { data: deliveryDocuments, error: deliveryError }] = await Promise.all([
+        supabase.from("sales_documents").select("id").eq("document_type", "PURCHASE_ORDER").eq("document_number", referenceNo).limit(1),
+        supabase.from("sales").select("id,quotation_no,invoice_no").eq("po_no", referenceNo).limit(1),
+        supabase.from("sales_documents").select("id").eq("document_type", "DELIVERY_NOTE").eq("reference_no", referenceNo).neq("id", id),
+      ]);
+      if (poError) throw poError;
+      if (saleError) throw saleError;
+      if (deliveryError) throw deliveryError;
+      const sale = saleRows?.[0];
+      if (!sale) return NextResponse.json({ error: `PO ${referenceNo} tidak ditemukan atau belum terhubung ke transaksi.` }, { status: 404 });
+      deliverySale = { id: Number(sale.id), invoice_no: String(sale.invoice_no || "") };
+      let sourceDocumentId = Number(poDocuments?.[0]?.id || 0);
+      if (!sourceDocumentId && sale.quotation_no) {
+        const { data: quotations, error: quotationError } = await supabase.from("sales_documents")
+          .select("id").eq("document_type", "QUOTATION").eq("document_number", sale.quotation_no).limit(1);
+        if (quotationError) throw quotationError;
+        sourceDocumentId = Number(quotations?.[0]?.id || 0);
+      }
+      if (!sourceDocumentId) return NextResponse.json({ error: `Detail item PO ${referenceNo} belum tersedia.` }, { status: 404 });
+      const deliveryIds = (deliveryDocuments ?? []).map((document) => Number(document.id));
+      const [{ data: orderedItems, error: orderedError }, deliveredResult] = await Promise.all([
+        supabase.from("sales_document_items").select("spare_part_id,part_number,description,quantity,unit").eq("document_id", sourceDocumentId),
+        deliveryIds.length
+          ? supabase.from("sales_document_items").select("spare_part_id,part_number,description,quantity,unit").in("document_id", deliveryIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (orderedError) throw orderedError;
+      if (deliveredResult.error) throw deliveredResult.error;
+      deliveryComplete = validateDeliveryQuantities(orderedItems ?? [], deliveredResult.data ?? [], items);
+    }
+
+    const taxPercent = type === "DELIVERY_NOTE" ? 0 : Math.max(0, Number(body.tax_percent ?? current.tax_percent ?? 11));
+    const subtotal = type === "DELIVERY_NOTE" ? 0 : items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
+    const taxAmount = subtotal * taxPercent / 100;
+    const grandTotal = subtotal + taxAmount;
+    const now = new Date().toISOString();
+    const { error: deleteError } = await supabase.from("sales_document_items").delete().eq("document_id", id);
+    if (deleteError) throw deleteError;
+    const { error: itemError } = await supabase.from("sales_document_items").insert(items.map((item) => ({
+      document_id: id,
+      spare_part_id: item.spare_part_id ? Number(item.spare_part_id) : null,
+      part_number: String(item.part_number || ""),
+      description: String(item.description || ""),
+      quantity: Number(item.quantity || 0),
+      unit: String(item.unit || "Pcs"),
+      unit_price: type === "DELIVERY_NOTE" ? 0 : Number(item.unit_price || 0),
+      line_total: type === "DELIVERY_NOTE" ? 0 : Number(item.quantity || 0) * Number(item.unit_price || 0),
+    })));
+    if (itemError) throw itemError;
+    const { error: documentError } = await supabase.from("sales_documents").update({
+      customer,
+      customer_address: String(body.customer_address || ""),
+      customer_pic: String(body.customer_pic || ""),
+      project: String(body.project || ""),
+      reference_no: referenceNo,
+      document_date: String(body.document_date || current.document_date),
+      due_date: String(body.due_date || ""),
+      subtotal,
+      tax_percent: taxPercent,
+      tax_amount: taxAmount,
+      grand_total: grandTotal,
+      notes: String(body.notes || ""),
+      status: type === "DELIVERY_NOTE" ? (deliveryComplete ? "COMPLETE" : "PARTIAL") : String(current.status || "DRAFT"),
+      updated_at: now,
+    }).eq("id", id);
+    if (documentError) throw documentError;
+
+    if (type === "DELIVERY_NOTE" && deliverySale) {
+      const { error: saleError } = await supabase.from("sales").update({
+        customer,
+        project: String(body.project || ""),
+        transaction_status: deliverySale.invoice_no ? "Done Invoice" : deliveryComplete ? "Terkirim - Siap Invoice" : "Dikirim Partial",
+        updated_at: now,
+      }).eq("id", deliverySale.id);
+      if (saleError) throw saleError;
+    } else if (type === "INVOICE") {
+      const { data: invoiceSales, error: saleReadError } = await supabase.from("sales")
+        .select("id,amount_paid").eq("invoice_no", current.document_number);
+      if (saleReadError) throw saleReadError;
+      for (const sale of invoiceSales ?? []) {
+        const closed = Number(sale.amount_paid || 0) >= grandTotal - 0.01;
+        const { error: saleError } = await supabase.from("sales").update({
+          customer,
+          project: String(body.project || ""),
+          invoice_amount: grandTotal,
+          due_date: String(body.due_date || ""),
+          payment_status: closed ? "CLOSED" : "OPEN",
+          transaction_status: closed ? "Paid" : "Done Invoice",
+          updated_at: now,
+        }).eq("id", sale.id);
+        if (saleError) throw saleError;
+      }
+    } else {
+      const { data: saleRows, error: saleReadError } = await supabase.from("sales")
+        .select("id,invoice_no").eq("quotation_no", current.document_number).limit(1);
+      if (saleReadError) throw saleReadError;
+      const linkedSale = saleRows?.[0];
+      if (linkedSale) {
+        const update: Record<string, unknown> = { customer, project: String(body.project || ""), updated_at: now };
+        if (!linkedSale.invoice_no) update.invoice_amount = grandTotal;
+        const { error: saleError } = await supabase.from("sales").update(update).eq("id", linkedSale.id);
+        if (saleError) throw saleError;
+      }
+    }
+    return NextResponse.json({ ok: true, id, document_number: current.document_number, delivery_complete: deliveryComplete });
+  }
+
+  const db = await getDb();
+  const current = await db.prepare("SELECT * FROM sales_documents WHERE id = ? LIMIT 1")
+    .bind(id).first<Record<string, unknown>>();
+  if (!current) return NextResponse.json({ error: "Dokumen tidak ditemukan." }, { status: 404 });
+  const type = String(current.document_type) as DocumentType;
+  if (!(["QUOTATION", "DELIVERY_NOTE", "INVOICE"] as string[]).includes(type)) {
+    return NextResponse.json({ error: "Jenis dokumen ini tidak dapat diedit melalui formulir." }, { status: 400 });
+  }
+  const referenceNo = type === "DELIVERY_NOTE" ? String(current.reference_no || "").trim() : String(body.reference_no ?? current.reference_no ?? "").trim();
+  let deliveryComplete = false;
+  let deliverySale: { id: number; invoice_no: string } | null = null;
+  if (type === "DELIVERY_NOTE") {
+    let sourceDocument = await db.prepare("SELECT id FROM sales_documents WHERE document_type = 'PURCHASE_ORDER' AND document_number = ? COLLATE NOCASE LIMIT 1")
+      .bind(referenceNo).first<{ id: number }>();
+    const sale = await db.prepare("SELECT id, quotation_no, invoice_no FROM sales WHERE po_no = ? COLLATE NOCASE LIMIT 1")
+      .bind(referenceNo).first<{ id: number; quotation_no: string; invoice_no: string }>();
+    if (!sale) return NextResponse.json({ error: `PO ${referenceNo} tidak ditemukan atau belum terhubung ke transaksi.` }, { status: 404 });
+    deliverySale = { id: sale.id, invoice_no: sale.invoice_no };
+    if (!sourceDocument && sale.quotation_no) {
+      sourceDocument = await db.prepare("SELECT id FROM sales_documents WHERE document_type = 'QUOTATION' AND document_number = ? COLLATE NOCASE LIMIT 1")
+        .bind(sale.quotation_no).first<{ id: number }>();
+    }
+    if (!sourceDocument) return NextResponse.json({ error: `Detail item PO ${referenceNo} belum tersedia.` }, { status: 404 });
+    const orderedItems = await db.prepare("SELECT spare_part_id, part_number, description, quantity, unit FROM sales_document_items WHERE document_id = ?")
+      .bind(sourceDocument.id).all<DocumentItem>();
+    const deliveredItems = await db.prepare(
+      `SELECT item.spare_part_id, item.part_number, item.description, item.quantity, item.unit
+       FROM sales_document_items item INNER JOIN sales_documents document ON document.id = item.document_id
+       WHERE document.document_type = 'DELIVERY_NOTE' AND document.reference_no = ? COLLATE NOCASE AND document.id <> ?`
+    ).bind(referenceNo, id).all<DocumentItem>();
+    deliveryComplete = validateDeliveryQuantities(orderedItems.results, deliveredItems.results, items);
+  }
+  const taxPercent = type === "DELIVERY_NOTE" ? 0 : Math.max(0, Number(body.tax_percent ?? current.tax_percent ?? 11));
+  const subtotal = type === "DELIVERY_NOTE" ? 0 : items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
+  const taxAmount = subtotal * taxPercent / 100;
+  const grandTotal = subtotal + taxAmount;
+  const now = new Date().toISOString();
+  const statements = [
+    db.prepare(`UPDATE sales_documents SET customer = ?, customer_address = ?, customer_pic = ?, project = ?, reference_no = ?, document_date = ?, due_date = ?, subtotal = ?, tax_percent = ?, tax_amount = ?, grand_total = ?, notes = ?, status = ?, updated_at = ? WHERE id = ?`).bind(
+      customer, String(body.customer_address || ""), String(body.customer_pic || ""), String(body.project || ""), referenceNo,
+      String(body.document_date || current.document_date), String(body.due_date || ""), subtotal, taxPercent, taxAmount, grandTotal,
+      String(body.notes || ""), type === "DELIVERY_NOTE" ? (deliveryComplete ? "COMPLETE" : "PARTIAL") : String(current.status || "DRAFT"), now, id
+    ),
+    db.prepare("DELETE FROM sales_document_items WHERE document_id = ?").bind(id),
+    ...items.map((item) => db.prepare(`INSERT INTO sales_document_items (document_id, spare_part_id, part_number, description, quantity, unit, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(id, item.spare_part_id ? Number(item.spare_part_id) : null, String(item.part_number || ""), String(item.description || ""), Number(item.quantity || 0), String(item.unit || "Pcs"), type === "DELIVERY_NOTE" ? 0 : Number(item.unit_price || 0), type === "DELIVERY_NOTE" ? 0 : Number(item.quantity || 0) * Number(item.unit_price || 0))),
+  ];
+  await db.batch(statements);
+  const salesExists = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sales'").first();
+  if (salesExists) {
+    if (type === "DELIVERY_NOTE" && deliverySale) {
+      await db.prepare("UPDATE sales SET customer = ?, project = ?, transaction_status = ?, updated_at = ? WHERE id = ?")
+        .bind(customer, String(body.project || ""), deliverySale.invoice_no ? "Done Invoice" : deliveryComplete ? "Terkirim - Siap Invoice" : "Dikirim Partial", now, deliverySale.id).run();
+    } else if (type === "INVOICE") {
+      const invoiceSales = await db.prepare("SELECT id, amount_paid FROM sales WHERE invoice_no = ? COLLATE NOCASE")
+        .bind(String(current.document_number)).all<{ id: number; amount_paid: number }>();
+      for (const sale of invoiceSales.results) {
+        const closed = Number(sale.amount_paid || 0) >= grandTotal - 0.01;
+        await db.prepare("UPDATE sales SET customer = ?, project = ?, invoice_amount = ?, due_date = ?, payment_status = ?, transaction_status = ?, updated_at = ? WHERE id = ?")
+          .bind(customer, String(body.project || ""), grandTotal, String(body.due_date || ""), closed ? "CLOSED" : "OPEN", closed ? "Paid" : "Done Invoice", now, sale.id).run();
+      }
+    } else {
+      const linkedSale = await db.prepare("SELECT id, invoice_no FROM sales WHERE quotation_no = ? COLLATE NOCASE LIMIT 1")
+        .bind(String(current.document_number)).first<{ id: number; invoice_no: string }>();
+      if (linkedSale) {
+        if (linkedSale.invoice_no) await db.prepare("UPDATE sales SET customer = ?, project = ?, updated_at = ? WHERE id = ?").bind(customer, String(body.project || ""), now, linkedSale.id).run();
+        else await db.prepare("UPDATE sales SET customer = ?, project = ?, invoice_amount = ?, updated_at = ? WHERE id = ?").bind(customer, String(body.project || ""), grandTotal, now, linkedSale.id).run();
+      }
+    }
+  }
+  return NextResponse.json({ ok: true, id, document_number: current.document_number, delivery_complete: deliveryComplete });
+}
+
 export async function PATCH(request: NextRequest) {
   try {
     const access = await requireRole(request, ["ADMIN", "EDITOR"]);
     if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
-    const body = await request.json() as { id?: number; document_number?: string };
+    const body = await request.json() as DocumentPatchInput;
+    if (body.action === "update_content") {
+      if (access.identity?.role !== "ADMIN") return NextResponse.json({ error: "Hanya Admin yang dapat mengedit isi dokumen yang sudah terbit." }, { status: 403 });
+      return updateDocumentContent(body);
+    }
     const id = Number(body.id || 0);
     const documentNumber = String(body.document_number || "").trim().toUpperCase();
     if (!id || !/^[0-9]{3}\/.+/.test(documentNumber)) {

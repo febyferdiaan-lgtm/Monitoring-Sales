@@ -466,6 +466,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .line-items-head h3 { margin: 0; font-size: 16px; }
 .line-item { display: grid; grid-template-columns: 28px minmax(180px, 1.25fr) minmax(115px, .8fr) minmax(180px, 1.3fr) 70px 70px 120px minmax(120px, .85fr) 34px; align-items: end; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border); }
 .line-item.delivery-line { grid-template-columns: 28px minmax(170px, 1.15fr) minmax(115px, .75fr) minmax(210px, 1.35fr) 90px 75px minmax(140px, .9fr); }
+.line-item.delivery-line.editable { grid-template-columns: 28px minmax(170px, 1.15fr) minmax(115px, .75fr) minmax(210px, 1.35fr) 90px 75px minmax(120px, .8fr) 34px; }
 .delivery-line input[readonly], .delivery-line select:disabled { background: #f3f1ee; color: #6f6965; }
 .delivery-line .line-total small { color: var(--muted); font-size: 7px; white-space: nowrap; }
 .line-number { width: 26px; height: 26px; margin-bottom: 7px; display: grid; place-items: center; border-radius: 8px; background: #fff; color: var(--muted); font-size: 10px; font-weight: 800; }

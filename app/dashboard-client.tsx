@@ -431,6 +431,7 @@ export default function DashboardClient() {
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
   const [editSaleDraft, setEditSaleDraft] = useState<DraftSale>(emptyDraft);
   const [selectedDocument, setSelectedDocument] = useState<SalesDocument | null>(null);
+  const [editingDocument, setEditingDocument] = useState<SalesDocument | null>(null);
   const [editingQuotationDocument, setEditingQuotationDocument] = useState<SalesDocument | null>(null);
   const [quotationSequenceDraft, setQuotationSequenceDraft] = useState("");
   const [editingDeliveryDocument, setEditingDeliveryDocument] = useState<SalesDocument | null>(null);
@@ -1140,6 +1141,7 @@ export default function DashboardClient() {
       setNotice(`Seluruh item PO ${sale.po_no} sudah memiliki surat jalan.`);
       return;
     }
+    setEditingDocument(null);
     setDeliverySource({ quotation, sale });
     setDeliveryMode("FULL");
     const nextDelivery = emptyDocument("DELIVERY_NOTE");
@@ -1159,6 +1161,7 @@ export default function DashboardClient() {
   };
 
   const openDocumentForm = (type: "QUOTATION" | "INVOICE", source?: SalesDocument) => {
+    setEditingDocument(null);
     if (source) {
       const deliverySale = source.document_type === "DELIVERY_NOTE" ? sales.find((sale) => sale.po_no.trim().toLowerCase() === source.reference_no.trim().toLowerCase()) : null;
       const deliveryQuotation = deliverySale ? documents.find((document) => document.document_type === "QUOTATION" && document.document_number === deliverySale.quotation_no) : null;
@@ -1190,6 +1193,38 @@ export default function DashboardClient() {
       setDocumentDraft(next);
     }
     setDeliverySource(null);
+    setShowDocument(true);
+  };
+
+  const openDocumentEdit = (document: SalesDocument) => {
+    if (!isAdmin || document.document_type === "PURCHASE_ORDER") return;
+    const sequence = document.document_number.match(/^(\d{1,3})\//)?.[1] || "001";
+    setEditingDocument(document);
+    setDeliverySource(null);
+    setDeliveryMode(document.document_type === "DELIVERY_NOTE" ? "PARTIAL" : "FULL");
+    setDocumentDraft({
+      type: document.document_type,
+      quotation_sequence: document.document_type === "QUOTATION" ? sequence.padStart(3, "0") : "",
+      delivery_sequence: document.document_type === "DELIVERY_NOTE" ? sequence.padStart(3, "0") : "",
+      customer: document.customer,
+      customer_address: document.customer_address,
+      customer_pic: document.customer_pic,
+      project: document.project,
+      reference_no: document.reference_no,
+      document_date: document.document_date,
+      due_date: document.due_date,
+      tax_percent: Number(document.tax_percent),
+      notes: document.notes,
+      items: document.items.map((item) => ({
+        key: localKey(),
+        spare_part_id: item.spare_part_id,
+        part_number: item.part_number,
+        description: item.description,
+        quantity: Number(item.quantity),
+        unit: item.unit,
+        unit_price: Number(item.unit_price),
+      })),
+    });
     setShowDocument(true);
   };
 
@@ -1293,6 +1328,7 @@ export default function DashboardClient() {
   const documentTax = documentSubtotal * Number(documentDraft.tax_percent || 0) / 100;
   const documentTotal = documentSubtotal + documentTax;
   const isDeliveryDraft = documentDraft.type === "DELIVERY_NOTE";
+  const deliveryItemsLocked = isDeliveryDraft && !editingDocument;
   const documentDraftLabel = documentDraft.type === "INVOICE" ? "Invoice" : isDeliveryDraft ? "Surat Jalan" : "Quotation";
 
   const saveDocument = async (event: FormEvent) => {
@@ -1300,16 +1336,19 @@ export default function DashboardClient() {
     setSaving(true);
     try {
       const response = await fetch("/api/documents", {
-        method: "POST",
+        method: editingDocument ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(documentDraft),
+        body: JSON.stringify(editingDocument ? { ...documentDraft, id: editingDocument.id, action: "update_content" } : documentDraft),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Dokumen belum berhasil dibuat.");
       setShowDocument(false);
       setDeliverySource(null);
+      setEditingDocument(null);
       const documentLabel = documentDraft.type === "INVOICE" ? "Invoice" : documentDraft.type === "DELIVERY_NOTE" ? "Surat Jalan" : "Quotation";
-      setNotice(`${documentLabel} ${payload.document_number} berhasil dibuat${documentDraft.type === "DELIVERY_NOTE" ? payload.delivery_complete ? ". Seluruh item PO telah dikirim." : ". Pengiriman tercatat sebagian." : "."}`);
+      setNotice(editingDocument
+        ? `${documentLabel} ${payload.document_number} berhasil diperbarui.`
+        : `${documentLabel} ${payload.document_number} berhasil dibuat${documentDraft.type === "DELIVERY_NOTE" ? payload.delivery_complete ? ". Seluruh item PO telah dikirim." : ". Pengiriman tercatat sebagian." : "."}`);
       await Promise.all([loadBusinessData(), loadSales()]);
       setActiveNav("Dokumen");
     } catch (error) {
@@ -1928,7 +1967,7 @@ export default function DashboardClient() {
                     <td><b>{document.customer}</b><small>{document.project || `${document.items.length} item`}</small></td>
                     <td>{document.document_date}</td>
                     <td className="number"><strong>{document.document_type === "DELIVERY_NOTE" ? `${document.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)} item` : money.format(document.grand_total)}</strong></td>
-                    <td><div className="row-actions"><button aria-label="Lihat dokumen" onClick={() => setSelectedDocument(document)}><FileText size={15} /></button><button aria-label="Cetak dokumen" onClick={() => printDocument(document)}><Printer size={15} /></button>{isAdmin && document.document_type === "QUOTATION" && <button className="quotation-number-edit" onClick={() => openQuotationNumberEdit(document)}><Pencil size={13} /> No. Quot</button>}{canEdit && document.document_type === "DELIVERY_NOTE" && <button className="quotation-number-edit delivery-number-edit" onClick={() => openDeliveryNumberEdit(document)}><Pencil size={13} /> No. SJ</button>}{canEdit && document.document_type === "QUOTATION" && !linkedSale?.po_no && <button className="convert-button po-convert" onClick={() => openPoFromQuotationDocument(document)}><ShoppingBag size={13} /> PO Diterima</button>}{linkedSale?.po_no && document.document_type === "QUOTATION" && <span className="po-linked-badge"><CheckCircle2 size={12} /> PO Diterima</span>}{canEdit && document.document_type === "QUOTATION" && linkedSale?.po_no && !deliveryProgress?.complete && <button className="convert-button delivery-convert" onClick={() => openDeliveryForm(document, linkedSale)}><Truck size={13} /> {deliveryProgress?.hasDelivery ? "Kirim Sisa" : "Siapkan Pengiriman"}</button>}{document.document_type === "QUOTATION" && deliveryProgress?.complete && <span className="delivery-complete-badge"><CheckCircle2 size={12} /> Terkirim {deliveryProgress.shippedQuantity}/{deliveryProgress.orderedQuantity}</span>}{canEdit && document.document_type === "DELIVERY_NOTE" && <button className="convert-button" onClick={() => openDocumentForm("INVOICE", document)}><ReceiptText size={13} /> Jadi Invoice</button>}</div></td>
+                    <td><div className="row-actions"><button aria-label="Lihat dokumen" onClick={() => setSelectedDocument(document)}><FileText size={15} /></button><button aria-label="Cetak dokumen" onClick={() => printDocument(document)}><Printer size={15} /></button>{isAdmin && document.document_type !== "PURCHASE_ORDER" && <button className="quotation-number-edit document-content-edit" onClick={() => openDocumentEdit(document)}><Pencil size={13} /> Edit Isi</button>}{isAdmin && document.document_type === "QUOTATION" && <button className="quotation-number-edit" onClick={() => openQuotationNumberEdit(document)}><Pencil size={13} /> No. Quot</button>}{canEdit && document.document_type === "DELIVERY_NOTE" && <button className="quotation-number-edit delivery-number-edit" onClick={() => openDeliveryNumberEdit(document)}><Pencil size={13} /> No. SJ</button>}{canEdit && document.document_type === "QUOTATION" && !linkedSale?.po_no && <button className="convert-button po-convert" onClick={() => openPoFromQuotationDocument(document)}><ShoppingBag size={13} /> PO Diterima</button>}{linkedSale?.po_no && document.document_type === "QUOTATION" && <span className="po-linked-badge"><CheckCircle2 size={12} /> PO Diterima</span>}{canEdit && document.document_type === "QUOTATION" && linkedSale?.po_no && !deliveryProgress?.complete && <button className="convert-button delivery-convert" onClick={() => openDeliveryForm(document, linkedSale)}><Truck size={13} /> {deliveryProgress?.hasDelivery ? "Kirim Sisa" : "Siapkan Pengiriman"}</button>}{document.document_type === "QUOTATION" && deliveryProgress?.complete && <span className="delivery-complete-badge"><CheckCircle2 size={12} /> Terkirim {deliveryProgress.shippedQuantity}/{deliveryProgress.orderedQuantity}</span>}{canEdit && document.document_type === "DELIVERY_NOTE" && <button className="convert-button" onClick={() => openDocumentForm("INVOICE", document)}><ReceiptText size={13} /> Jadi Invoice</button>}</div></td>
                   </tr>;
                 })}
                 {!documents.length && <tr><td colSpan={6} className="empty-state">Belum ada quotation, surat jalan, atau invoice yang dibuat dari aplikasi.</td></tr>}
@@ -2110,39 +2149,40 @@ export default function DashboardClient() {
       )}
 
       {showDocument && (
-        <div className="modal-backdrop document-backdrop" onMouseDown={() => { setShowDocument(false); setDeliverySource(null); }}>
+        <div className="modal-backdrop document-backdrop" onMouseDown={() => { setShowDocument(false); setDeliverySource(null); setEditingDocument(null); }}>
           <section className="modal document-modal" role="dialog" aria-modal="true" aria-labelledby="document-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head"><div><p className="eyebrow">{documentDraftLabel.toUpperCase()} BARU</p><h2 id="document-title">Buat {documentDraftLabel}</h2><p>{isDeliveryDraft ? `PO ${documentDraft.reference_no} · pilih pengiriman penuh atau partial.` : "Pilih sparepart agar part number, satuan, dan harga jual terisi otomatis."}</p></div><button className="icon-button" onClick={() => { setShowDocument(false); setDeliverySource(null); }} aria-label="Tutup"><X /></button></div>
+            <div className="modal-head"><div><p className="eyebrow">{editingDocument ? `ADMIN · EDIT ${documentDraftLabel.toUpperCase()}` : `${documentDraftLabel.toUpperCase()} BARU`}</p><h2 id="document-title">{editingDocument ? `Edit ${documentDraftLabel}` : `Buat ${documentDraftLabel}`}</h2><p>{editingDocument ? "Admin dapat mengubah data serta menambah atau menghapus item dokumen yang sudah terbit." : isDeliveryDraft ? `PO ${documentDraft.reference_no} · pilih pengiriman penuh atau partial.` : "Pilih sparepart agar part number, satuan, dan harga jual terisi otomatis."}</p></div><button className="icon-button" onClick={() => { setShowDocument(false); setDeliverySource(null); setEditingDocument(null); }} aria-label="Tutup"><X /></button></div>
             <form onSubmit={saveDocument} className="document-form">
               <section className="document-meta">
-                <label>Jenis Dokumen<select value={documentDraft.type} disabled={isDeliveryDraft} onChange={(e) => { const type = e.target.value as "QUOTATION" | "INVOICE"; setDocumentDraft({ ...documentDraft, type, quotation_sequence: type === "QUOTATION" ? documentDraft.quotation_sequence || suggestedQuotationSequence(documentDraft.document_date) : "" }); }}><option value="QUOTATION">Quotation</option><option value="DELIVERY_NOTE">Surat Jalan</option><option value="INVOICE">Invoice</option></select></label>
-                {documentDraft.type === "QUOTATION" && <label className="wide quotation-number-field">Nomor Quotation<span className="quotation-number-control"><input required inputMode="numeric" pattern="[0-9]{3}" maxLength={3} value={documentDraft.quotation_sequence} onChange={(e) => setDocumentDraft({ ...documentDraft, quotation_sequence: e.target.value.replace(/\D/g, "").slice(0, 3) })} aria-label="Tiga digit awal nomor quotation" /><b>{quotationNumberPreview.slice(3)}</b></span><small>Sales dan Admin dapat menyesuaikan tiga digit awal agar urutannya melanjutkan nomor quotation terakhir.</small></label>}
-                {documentDraft.type === "DELIVERY_NOTE" && <label className="wide quotation-number-field delivery-number-field">Nomor Surat Jalan<span className="quotation-number-control"><input required inputMode="numeric" pattern="[0-9]{3}" maxLength={3} value={documentDraft.delivery_sequence} onChange={(e) => setDocumentDraft({ ...documentDraft, delivery_sequence: e.target.value.replace(/\D/g, "").slice(0, 3) })} aria-label="Tiga digit awal nomor surat jalan" /><b>{deliveryNumberPreview.slice(3)}</b></span><small>Sales dan Admin dapat mengubah tiga digit awal. Saran nomor mengikuti SJ terakhir agar nomor tetap berkelanjutan.</small></label>}
+                <label>Jenis Dokumen<select value={documentDraft.type} disabled={isDeliveryDraft || Boolean(editingDocument)} onChange={(e) => { const type = e.target.value as "QUOTATION" | "INVOICE"; setDocumentDraft({ ...documentDraft, type, quotation_sequence: type === "QUOTATION" ? documentDraft.quotation_sequence || suggestedQuotationSequence(documentDraft.document_date) : "" }); }}><option value="QUOTATION">Quotation</option><option value="DELIVERY_NOTE">Surat Jalan</option><option value="INVOICE">Invoice</option></select></label>
+                {editingDocument && <label className="wide">Nomor Dokumen<input readOnly value={editingDocument.document_number} /><small>Gunakan tombol No. Quot atau No. SJ pada riwayat jika nomor urut perlu dikoreksi.</small></label>}
+                {!editingDocument && documentDraft.type === "QUOTATION" && <label className="wide quotation-number-field">Nomor Quotation<span className="quotation-number-control"><input required inputMode="numeric" pattern="[0-9]{3}" maxLength={3} value={documentDraft.quotation_sequence} onChange={(e) => setDocumentDraft({ ...documentDraft, quotation_sequence: e.target.value.replace(/\D/g, "").slice(0, 3) })} aria-label="Tiga digit awal nomor quotation" /><b>{quotationNumberPreview.slice(3)}</b></span><small>Sales dan Admin dapat menyesuaikan tiga digit awal agar urutannya melanjutkan nomor quotation terakhir.</small></label>}
+                {!editingDocument && documentDraft.type === "DELIVERY_NOTE" && <label className="wide quotation-number-field delivery-number-field">Nomor Surat Jalan<span className="quotation-number-control"><input required inputMode="numeric" pattern="[0-9]{3}" maxLength={3} value={documentDraft.delivery_sequence} onChange={(e) => setDocumentDraft({ ...documentDraft, delivery_sequence: e.target.value.replace(/\D/g, "").slice(0, 3) })} aria-label="Tiga digit awal nomor surat jalan" /><b>{deliveryNumberPreview.slice(3)}</b></span><small>Sales dan Admin dapat mengubah tiga digit awal. Saran nomor mengikuti SJ terakhir agar nomor tetap berkelanjutan.</small></label>}
                 <label>Customer<input required list="customer-list" value={documentDraft.customer} onChange={(e) => setDocumentDraft({ ...documentDraft, customer: e.target.value })} placeholder="Nama perusahaan/customer" /><datalist id="customer-list">{customers.map((customer) => <option key={customer.name} value={customer.name} />)}</datalist></label>
                 <label>PIC Customer<input value={documentDraft.customer_pic} onChange={(e) => setDocumentDraft({ ...documentDraft, customer_pic: e.target.value })} placeholder="Nama PIC" /></label>
                 <label>Tanggal Dokumen<input required type="date" value={documentDraft.document_date} onChange={(e) => setDocumentDraft({ ...documentDraft, document_date: e.target.value, quotation_sequence: documentDraft.type === "QUOTATION" ? suggestedQuotationSequence(e.target.value) : documentDraft.quotation_sequence, delivery_sequence: documentDraft.type === "DELIVERY_NOTE" ? suggestedDeliverySequence(e.target.value) : documentDraft.delivery_sequence })} /></label>
                 <label className="wide">Alamat Customer<input value={documentDraft.customer_address} onChange={(e) => setDocumentDraft({ ...documentDraft, customer_address: e.target.value })} placeholder="Alamat lengkap untuk dokumen" /></label>
                 <label>Proyek / Kebutuhan<input value={documentDraft.project} onChange={(e) => setDocumentDraft({ ...documentDraft, project: e.target.value })} /></label>
-                <label>{documentDraft.type === "INVOICE" ? "Referensi Surat Jalan / PO" : isDeliveryDraft ? "Nomor PO Customer" : "Referensi RFQ"}<input readOnly={isDeliveryDraft} value={documentDraft.reference_no} onChange={(e) => setDocumentDraft({ ...documentDraft, reference_no: e.target.value })} /></label>
+                <label>{documentDraft.type === "INVOICE" ? "Referensi Surat Jalan / PO" : isDeliveryDraft ? "Nomor PO Customer" : "Referensi RFQ"}<input readOnly={isDeliveryDraft || Boolean(editingDocument)} value={documentDraft.reference_no} onChange={(e) => setDocumentDraft({ ...documentDraft, reference_no: e.target.value })} /></label>
                 {documentDraft.type === "INVOICE" && <label>Jatuh Tempo<input type="date" value={documentDraft.due_date} onChange={(e) => setDocumentDraft({ ...documentDraft, due_date: e.target.value })} /></label>}
                 {!isDeliveryDraft && <label>PPN (%)<input type="number" min="0" step="0.1" value={documentDraft.tax_percent} onChange={(e) => setDocumentDraft({ ...documentDraft, tax_percent: Number(e.target.value) })} /></label>}
               </section>
 
-              {isDeliveryDraft && <section className="delivery-mode-picker"><div><p className="eyebrow">METODE PENGIRIMAN</p><h3>{deliverySource?.quotation.document_number}</h3><small>Jumlah tidak boleh melebihi sisa PO.</small></div><div><button type="button" className={deliveryMode === "FULL" ? "active" : ""} onClick={() => setShipmentMode("FULL")}><CheckCircle2 size={15} /> Kirim Sekaligus</button><button type="button" className={deliveryMode === "PARTIAL" ? "active" : ""} onClick={() => setShipmentMode("PARTIAL")}><PackageSearch size={15} /> Kirim Partial</button></div></section>}
+              {isDeliveryDraft && !editingDocument && <section className="delivery-mode-picker"><div><p className="eyebrow">METODE PENGIRIMAN</p><h3>{deliverySource?.quotation.document_number}</h3><small>Jumlah tidak boleh melebihi sisa PO.</small></div><div><button type="button" className={deliveryMode === "FULL" ? "active" : ""} onClick={() => setShipmentMode("FULL")}><CheckCircle2 size={15} /> Kirim Sekaligus</button><button type="button" className={deliveryMode === "PARTIAL" ? "active" : ""} onClick={() => setShipmentMode("PARTIAL")}><PackageSearch size={15} /> Kirim Partial</button></div></section>}
 
               <section className="line-items">
-                <div className="line-items-head"><div><p className="eyebrow">ITEM DOKUMEN</p><h3>{isDeliveryDraft ? "Item yang akan dikirim" : "Sparepart & Harga Jual"}</h3></div>{!isDeliveryDraft && <button type="button" className="secondary-button" onClick={() => setDocumentDraft({ ...documentDraft, items: [...documentDraft.items, newLine()] })}><Plus size={15} /> Tambah Baris</button>}</div>
+                <div className="line-items-head"><div><p className="eyebrow">ITEM DOKUMEN</p><h3>{isDeliveryDraft ? "Item yang akan dikirim" : "Sparepart & Harga Jual"}</h3></div>{(!isDeliveryDraft || editingDocument) && <button type="button" className="secondary-button" onClick={() => setDocumentDraft({ ...documentDraft, items: [...documentDraft.items, newLine()] })}><Plus size={15} /> Tambah Baris</button>}</div>
                 {documentDraft.items.map((item, index) => (
-                  <div className={`line-item ${isDeliveryDraft ? "delivery-line" : ""}`} key={item.key}>
+                  <div className={`line-item ${isDeliveryDraft ? "delivery-line" : ""} ${isDeliveryDraft && editingDocument ? "editable" : ""}`} key={item.key}>
                     <span className="line-number">{index + 1}</span>
-                    <label className="part-select">Pilih Sparepart<select disabled={isDeliveryDraft} value={item.spare_part_id ?? ""} onChange={(e) => selectPartForLine(item.key, e.target.value)}><option value="">Item manual</option>{parts.map((part) => <option key={part.id} value={part.id}>{part.part_number} — {part.name}</option>)}</select></label>
-                    <label>Part Number<input readOnly={isDeliveryDraft} value={item.part_number} onChange={(e) => updateDocumentLine(item.key, { part_number: e.target.value.toUpperCase() })} /></label>
-                    <label className="description">Deskripsi<input readOnly={isDeliveryDraft} required value={item.description} onChange={(e) => updateDocumentLine(item.key, { description: e.target.value })} /></label>
-                    <label>QTY {isDeliveryDraft ? "Kirim" : ""}<input required={!isDeliveryDraft} readOnly={isDeliveryDraft && deliveryMode === "FULL"} type="number" min={isDeliveryDraft ? 0 : 0.01} max={isDeliveryDraft ? item.max_quantity : undefined} step="0.01" value={item.quantity} onChange={(e) => updateDocumentLine(item.key, { quantity: Math.min(Number(item.max_quantity ?? Number.POSITIVE_INFINITY), Math.max(0, Number(e.target.value))) })} /></label>
-                    <label>Satuan<input readOnly={isDeliveryDraft} value={item.unit} onChange={(e) => updateDocumentLine(item.key, { unit: e.target.value })} /></label>
+                    <label className="part-select">Pilih Sparepart<select disabled={deliveryItemsLocked} value={item.spare_part_id ?? ""} onChange={(e) => selectPartForLine(item.key, e.target.value)}><option value="">Item manual</option>{parts.map((part) => <option key={part.id} value={part.id}>{part.part_number} — {part.name}</option>)}</select></label>
+                    <label>Part Number<input readOnly={deliveryItemsLocked} value={item.part_number} onChange={(e) => updateDocumentLine(item.key, { part_number: e.target.value.toUpperCase() })} /></label>
+                    <label className="description">Deskripsi<input readOnly={deliveryItemsLocked} required value={item.description} onChange={(e) => updateDocumentLine(item.key, { description: e.target.value })} /></label>
+                    <label>QTY {isDeliveryDraft ? "Kirim" : ""}<input required readOnly={deliveryItemsLocked && deliveryMode === "FULL"} type="number" min="0.01" max={deliveryItemsLocked ? item.max_quantity : undefined} step="0.01" value={item.quantity} onChange={(e) => updateDocumentLine(item.key, { quantity: Math.min(Number(deliveryItemsLocked ? item.max_quantity ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY), Math.max(0, Number(e.target.value))) })} /></label>
+                    <label>Satuan<input readOnly={deliveryItemsLocked} value={item.unit} onChange={(e) => updateDocumentLine(item.key, { unit: e.target.value })} /></label>
                     {!isDeliveryDraft && <label>Harga Jual<input required type="number" min="0" value={item.unit_price} onChange={(e) => updateDocumentLine(item.key, { unit_price: Number(e.target.value) })} /></label>}
-                    <div className="line-total"><span>{isDeliveryDraft ? "Sisa PO" : "Jumlah"}</span><strong>{isDeliveryDraft ? `${item.max_quantity} ${item.unit}` : money.format(item.quantity * item.unit_price)}</strong>{isDeliveryDraft && <small>Pesanan {item.ordered_quantity} · terkirim {item.previously_shipped}</small>}</div>
-                    {!isDeliveryDraft && <button type="button" className="remove-line" aria-label={`Hapus item ${index + 1}`} disabled={documentDraft.items.length === 1} onClick={() => setDocumentDraft({ ...documentDraft, items: documentDraft.items.filter((line) => line.key !== item.key) })}><Trash2 size={16} /></button>}
+                    <div className="line-total"><span>{isDeliveryDraft ? editingDocument ? "QTY SJ" : "Sisa PO" : "Jumlah"}</span><strong>{isDeliveryDraft ? editingDocument ? `${item.quantity} ${item.unit}` : `${item.max_quantity} ${item.unit}` : money.format(item.quantity * item.unit_price)}</strong>{isDeliveryDraft && !editingDocument && <small>Pesanan {item.ordered_quantity} · terkirim {item.previously_shipped}</small>}</div>
+                    {(!isDeliveryDraft || editingDocument) && <button type="button" className="remove-line" aria-label={`Hapus item ${index + 1}`} disabled={documentDraft.items.length === 1} onClick={() => setDocumentDraft({ ...documentDraft, items: documentDraft.items.filter((line) => line.key !== item.key) })}><Trash2 size={16} /></button>}
                   </div>
                 ))}
               </section>
@@ -2155,7 +2195,7 @@ export default function DashboardClient() {
                   <div className="grand-total"><span>Total</span><strong>{money.format(documentTotal)}</strong></div>
                 </div>}
               </div>
-              <div className="form-actions"><button type="button" className="secondary-button" onClick={() => { setShowDocument(false); setDeliverySource(null); }}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Membuat Dokumen…" : `Simpan ${documentDraftLabel}`}</button></div>
+              <div className="form-actions"><button type="button" className="secondary-button" onClick={() => { setShowDocument(false); setDeliverySource(null); setEditingDocument(null); }}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Menyimpan…" : editingDocument ? "Simpan Perubahan" : `Simpan ${documentDraftLabel}`}</button></div>
             </form>
           </section>
         </div>
