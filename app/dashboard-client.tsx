@@ -2035,7 +2035,7 @@ export default function DashboardClient() {
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <div className="brand">
           <div className="brand-logo-shell">
-            <img className="brand-logo" src="/mda-logo-sidebar.svg" alt="PT MDA Amanah Sejahtera" />
+            <img className="brand-logo" src="/mda-logo.svg" alt="PT MDA Amanah Sejahtera" />
           </div>
           <button className="mobile-close" aria-label="Tutup menu" onClick={() => setSidebarOpen(false)}><X /></button>
         </div>
@@ -2049,7 +2049,7 @@ export default function DashboardClient() {
 
       <section className="workspace">
         <header className="topbar">
-          <div className="title-wrap"><button className="menu-button" aria-label="Buka menu" onClick={() => setSidebarOpen(true)}><Menu /></button><div><p className="eyebrow">PT. MDA AMANAH SEJAHTERA MONITORING RAB</p><h1>{{ Dashboard: "Summary", Pipeline: "Proses Penjualan", Tagihan: "Kontrol Tagihan", Customer: "Data Customer", Sparepart: "Master Sparepart", Dokumen: "Dokumen Penjualan", Excel: "Data Excel Lengkap", Akses: "Akses Pengguna", Laporan: "Laporan Penjualan" }[activeNav]}</h1><p className="page-description">{{ Dashboard: "Lihat penjualan ber-PO, pengiriman, umur tagihan, dan piutang customer.", Pipeline: "Pantau perjalanan setiap pekerjaan dari RFQ hingga lunas.", Tagihan: "Fokus pada invoice yang belum dibayar dan jatuh tempo.", Customer: "Bandingkan jumlah PO, invoice, pembayaran, dan outstanding.", Sparepart: "Kelola part number, satuan, brand, dan harga jual.", Dokumen: "Buat quotation, surat jalan parsial/penuh, dan invoice yang siap dicetak.", Excel: "Telusuri seluruh baris dan kolom sumber Monitoring Sales.xlsx.", Akses: "Atur peran Admin, Sales/Editor, dan Viewer.", Laporan: "Unduh dan periksa rekap penjualan sesuai filter." }[activeNav]}</p></div></div>
+          <div className="title-wrap"><button className="menu-button" aria-label="Buka menu" onClick={() => setSidebarOpen(true)}><Menu /></button><div><p className="eyebrow">PT. MDA AMANAH SEJAHTERA MONITORING RAB</p><div className="m3-title-row"><h1>{{ Dashboard: "Summary", Pipeline: "Proses Penjualan", Tagihan: "Kontrol Tagihan", Customer: "Data Customer", Sparepart: "Master Sparepart", Dokumen: "Dokumen Penjualan", Excel: "Data Excel Lengkap", Akses: "Akses Pengguna", Laporan: "Laporan Penjualan" }[activeNav]}</h1><span className="m3-version-chip">Material 3</span></div><p className="page-description">{{ Dashboard: "Lihat penjualan ber-PO, pengiriman, umur tagihan, dan piutang customer.", Pipeline: "Pantau perjalanan setiap pekerjaan dari RFQ hingga lunas.", Tagihan: "Fokus pada invoice yang belum dibayar dan jatuh tempo.", Customer: "Bandingkan jumlah PO, invoice, pembayaran, dan outstanding.", Sparepart: "Kelola part number, satuan, brand, dan harga jual.", Dokumen: "Buat quotation, surat jalan parsial/penuh, dan invoice yang siap dicetak.", Excel: "Telusuri seluruh baris dan kolom sumber Monitoring Sales.xlsx.", Akses: "Atur peran Admin, Sales/Editor, dan Viewer.", Laporan: "Unduh dan periksa rekap penjualan sesuai filter." }[activeNav]}</p></div></div>
           <div className="top-actions">
             {activeNav !== "Akses" && activeNav !== "Excel" && (
               <label className="select-control year-control">
