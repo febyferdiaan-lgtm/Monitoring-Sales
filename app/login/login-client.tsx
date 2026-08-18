@@ -65,7 +65,7 @@ export default function LoginClient() {
       <section className="login-card">
         <img src="/mda-logo.png" alt="PT MDA Amanah Sejahtera" />
         <p className="eyebrow">PT. MDA AMANAH SEJAHTERA</p>
-        <h1>Monitoring RAB</h1>
+        <h1>Monitoring Sales</h1>
         <p>Masuk menggunakan email dan password akun yang sudah terdaftar.</p>
         <form onSubmit={submit}>
           <label htmlFor="email">Alamat email</label>

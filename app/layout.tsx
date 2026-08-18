@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PT. MDA Amanah Sejahtera Monitoring RAB",
-  description: "Aplikasi internal Monitoring RAB PT. MDA Amanah Sejahtera.",
+  title: "PT. MDA Amanah Sejahtera Monitoring Sales",
+  description: "Aplikasi internal Monitoring Sales PT. MDA Amanah Sejahtera.",
   icons: {
     icon: "/mda-logo.svg",
     shortcut: "/mda-logo.svg",

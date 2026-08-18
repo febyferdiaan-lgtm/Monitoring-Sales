@@ -81,8 +81,8 @@ export async function GET(request: NextRequest) {
     const totalOutstanding = currentSummary.reduce((sum, sale) => sum + Math.max(0, Number(sale.invoice_amount || 0) - Number(sale.amount_paid || 0)), 0);
     const overdueCount = currentSummary.filter((sale) => agingStatus(sale) === "Terlambat").length;
     const summaryRows: (string | number)[][] = [
-      ["PT. MDA AMANAH SEJAHTERA — MONITORING RAB"],
-      ["Sumber Data", excelPayload.source?.source_file || "Monitoring RAB.xlsx"],
+      ["PT. MDA AMANAH SEJAHTERA — MONITORING SALES"],
+      ["Sumber Data", excelPayload.source?.source_file || "Monitoring Sales.xlsx"],
       ["Diperbarui", new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })],
       [],
       ["Jumlah PO", "Jumlah Invoice", "Nilai Transaksi", "Sudah Dibayar", "Belum Dibayar", "Lewat Jatuh Tempo"],
@@ -124,7 +124,7 @@ export async function GET(request: NextRequest) {
     XLSX.utils.book_append_sheet(workbook, summarySheet, "SUMMARY");
     XLSX.utils.book_append_sheet(workbook, customerSheet, "PIUTANG CUSTOMER");
     const file = XLSX.write(workbook, { type: "array", bookType: "xlsx", compression: true }) as ArrayBuffer;
-    const filename = `PT MDA Monitoring RAB - ${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const filename = `PT MDA Monitoring Sales - ${new Date().toISOString().slice(0, 10)}.xlsx`;
 
     return new Response(file, {
       headers: {
