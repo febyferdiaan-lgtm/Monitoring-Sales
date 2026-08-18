@@ -39,7 +39,7 @@ export default function UpdatePasswordClient() {
   return (
     <main className="login-shell">
       <section className="login-card">
-        <img src="/mda-logo.png" alt="PT MDA Amanah Sejahtera" />
+        <img src="/mda-logo.svg" alt="PT MDA Amanah Sejahtera" />
         <p className="eyebrow">PT MDA AMANAH SEJAHTERA</p>
         <h1>Buat Password Baru</h1>
         <p>Masukkan password baru untuk akun Monitoring Sales Anda.</p>

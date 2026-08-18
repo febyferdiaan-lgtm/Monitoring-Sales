@@ -1848,7 +1848,7 @@ export default function DashboardClient() {
             <span className="banner-icon"><PackageSearch /></span>
             <div><p className="eyebrow">SUMMARY SPAREPART</p><h2>{summaryParts.length} sparepart terjual</h2><p>Hanya menampilkan part dengan harga jual dan riwayat penjualan berdasarkan invoice.</p></div>
             {canEdit && <div className="banner-actions">
-              <a className="secondary-button" href="/template-import-sparepart.xlsx" download><Download size={17} /> Template Excel</a>
+              <a className="secondary-button" href="/api/spareparts/template" download><Download size={17} /> Template Excel</a>
               <input ref={sparePartFileRef} className="visually-hidden" type="file" accept=".xlsx,.xls" onChange={importSpareParts} />
               <button className="secondary-button" onClick={() => sparePartFileRef.current?.click()} disabled={saving}><Upload size={17} /> Impor Massal</button>
               <button className="primary-button" onClick={() => openPartForm()}><Plus size={17} /> Tambah Sparepart</button>
