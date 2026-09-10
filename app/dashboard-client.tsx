@@ -2445,42 +2445,65 @@ const formatPrintDate = (value: string) => {
   const date = new Date(`${value}T00:00:00`);
   return Number.isNaN(date.valueOf())
     ? value
-    : date.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+    : date.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "2-digit" });
 };
+
+const spellIndonesianNumber = (amount: number): string => {
+  const words = ["", "Satu", "Dua", "Tiga", "Empat", "Lima", "Enam", "Tujuh", "Delapan", "Sembilan", "Sepuluh", "Sebelas"];
+  if (amount === 0) return "";
+  if (amount < 12) return words[amount];
+  if (amount < 20) return `${spellIndonesianNumber(amount - 10)} Belas`;
+  if (amount < 100) return `${spellIndonesianNumber(Math.floor(amount / 10))} Puluh ${spellIndonesianNumber(amount % 10)}`.trim();
+  if (amount < 200) return `Seratus ${spellIndonesianNumber(amount - 100)}`.trim();
+  if (amount < 1_000) return `${spellIndonesianNumber(Math.floor(amount / 100))} Ratus ${spellIndonesianNumber(amount % 100)}`.trim();
+  if (amount < 2_000) return `Seribu ${spellIndonesianNumber(amount - 1_000)}`.trim();
+  if (amount < 1_000_000) return `${spellIndonesianNumber(Math.floor(amount / 1_000))} Ribu ${spellIndonesianNumber(amount % 1_000)}`.trim();
+  if (amount < 1_000_000_000) return `${spellIndonesianNumber(Math.floor(amount / 1_000_000))} Juta ${spellIndonesianNumber(amount % 1_000_000)}`.trim();
+  if (amount < 1_000_000_000_000) return `${spellIndonesianNumber(Math.floor(amount / 1_000_000_000))} Miliar ${spellIndonesianNumber(amount % 1_000_000_000)}`.trim();
+  return `${spellIndonesianNumber(Math.floor(amount / 1_000_000_000_000))} Triliun ${spellIndonesianNumber(amount % 1_000_000_000_000)}`.trim();
+};
+
+const numberToIndonesianWords = (value: number) => spellIndonesianNumber(Math.floor(Math.abs(value))) || "Nol";
 
 const quotationNoteDetails = (notes: string) => {
   const lines = notes.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const term = lines.find((line) => /^(term of payment|payment term)\s*:/i.test(line))?.split(":").slice(1).join(":").trim();
   const validity = lines.find((line) => /^(validity|validation quotation|masa berlaku)\s*:/i.test(line))?.split(":").slice(1).join(":").trim();
   const specialNotes = lines.filter((line) => !/^(term of payment|payment term|validity|validation quotation|masa berlaku)\s*:/i.test(line));
+  const resolvedValidity = validity || "7 Days";
+  const validityNote = `Validity ${resolvedValidity.replace(/^validity\s*/i, "")}`;
+  if (!specialNotes.length) specialNotes.push("Franco Jabodetabek");
+  if (!specialNotes.some((line) => /^validity\b/i.test(line))) specialNotes.splice(Math.min(1, specialNotes.length), 0, validityNote);
   return {
-    term: term || "Sesuai Kesepakatan",
-    validity: validity || "7 Days",
-    specialNotes: specialNotes.length ? specialNotes : ["Franco Site", "Validity 7 Days"],
+    term: term || "Cash Before Delivery",
+    validity: resolvedValidity,
+    specialNotes,
   };
 };
 
 function QuotationPreview({ document, createdBy }: { document: SalesDocument; createdBy: string }) {
   const details = quotationNoteDetails(document.notes);
-  const emptyRows = Array.from({ length: Math.max(0, 14 - document.items.length) });
+  const emptyRows = Array.from({ length: Math.max(0, 37 - document.items.length) });
   const plainNumber = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 });
   return (
     <article className="quotation-print-document">
       <header className="quotation-template-header">
         <div className="quotation-company">
           <div className="quotation-company-top">
-            <img src="/mda-logo.svg" alt="PT MDA Amanah Sejahtera" />
-            <address><span className="quotation-pin">●</span><span>Jl. River Garden Boulevard Blok B2 No. 21B<br />Kel. Cakung Timur, Kec. Cakung<br />Jakarta Timur 13910</span></address>
+            <img className="quotation-main-logo" src="/quotation-logo.png" alt="PT MDA Amanah Sejahtera" />
+            <img className="quotation-address-image" src="/quotation-address.png" alt="Jl. River Garden Boulevard Blok B2 No. 21B, Kel. Cakung Timur, Kec. Cakung, Jakarta Timur 13910" />
           </div>
+          <strong>PT MDA AMANAH SEJAHTERA</strong>
           <em>CONSISTENTLY INNOVATE TO ACHIEVE MEANINGFUL GOALS</em>
         </div>
         <div className="quotation-heading">
+          <img className="quotation-chevron-art" src="/quotation-chevrons.png" alt="" />
           <h1>QUOTATION</h1>
           <dl>
-            <div><dt>DATE</dt><dd>: {formatPrintDate(document.document_date)}</dd></div>
-            <div><dt>QUOTATION NUMBER</dt><dd>: {document.document_number}</dd></div>
-            <div><dt>TERM OF PAYMENT</dt><dd>: {details.term}</dd></div>
-            <div><dt>VALIDATION QUOTATION</dt><dd>: {details.validity}</dd></div>
+            <div><dt>DATE</dt><dd>{formatPrintDate(document.document_date)}</dd></div>
+            <div><dt>QUOTATION NUMBER</dt><dd>{document.document_number}</dd></div>
+            <div><dt>TERM OF PAYMENT</dt><dd>{details.term}</dd></div>
+            <div><dt>VALIDATION QUOTATION</dt><dd>{details.validity}</dd></div>
           </dl>
         </div>
       </header>
@@ -2492,10 +2515,11 @@ function QuotationPreview({ document, createdBy }: { document: SalesDocument; cr
       </section>
 
       <table className="quotation-template-table">
+        <colgroup><col /><col /><col /><col /><col /><col /><col /><col /></colgroup>
         <thead><tr><th>NO</th><th>PART NO</th><th>DESC</th><th>QTY</th><th>UOM</th><th>PRICE</th><th>AMOUNT</th><th>REMARK</th></tr></thead>
         <tbody>
           {document.items.map((item, index) => <tr key={item.id}>
-            <td>{index + 1}</td><td>{item.part_number || "-"}</td><td>{item.description}</td><td>{item.quantity}</td><td>{item.unit}</td>
+            <td>{index + 1}</td><td>{item.part_number || ""}</td><td>{item.description}</td><td>{item.quantity}</td><td>{item.unit}</td>
             <td><span className="quotation-money"><i>Rp</i><b>{plainNumber.format(item.unit_price)}</b></span></td>
             <td><span className="quotation-money"><i>Rp</i><b>{plainNumber.format(item.line_total)}</b></span></td><td>-</td>
           </tr>)}
@@ -2506,8 +2530,8 @@ function QuotationPreview({ document, createdBy }: { document: SalesDocument; cr
       <section className="quotation-summary-grid">
         <div className="quotation-special-notes"><h2>SPECIAL NOTES</h2><ol>{details.specialNotes.map((note, index) => <li key={`${note}-${index}`}>{note.replace(/^\d+[.)]\s*/, "")}</li>)}</ol></div>
         <div className="quotation-totals-area">
-          <table><tbody><tr><th>SUB TOTAL</th><td>Rp</td><td>{plainNumber.format(document.subtotal)}</td></tr><tr><th>PPN</th><td>{document.tax_percent}%</td><td>{plainNumber.format(document.tax_amount)}</td></tr><tr className="quotation-grand-total"><th>TOTAL</th><td>Rp</td><td>{plainNumber.format(document.grand_total)}</td></tr></tbody></table>
-          <div className="quotation-total-note">{document.project || ""}</div>
+          <table><tbody><tr><th>SUB TOTAL</th><td></td><td><span>Rp</span>{plainNumber.format(document.subtotal)}</td></tr><tr><th>PPN</th><td>{document.tax_percent}%</td><td><span>Rp</span>{plainNumber.format(document.tax_amount)}</td></tr><tr className="quotation-total-spacer"><th></th><td></td><td></td></tr><tr className="quotation-grand-total"><th>TOTAL</th><td></td><td><span>Rp</span>{plainNumber.format(document.grand_total)}</td></tr></tbody></table>
+          <div className="quotation-total-note">{numberToIndonesianWords(document.grand_total)} Rupiah</div>
         </div>
       </section>
 
@@ -2515,7 +2539,7 @@ function QuotationPreview({ document, createdBy }: { document: SalesDocument; cr
 
       <section className="quotation-signatures">
         <div><h2>ACCEPTED BY ;</h2><em>Dated ;</em><dl><div><dt>NAME</dt><dd>:</dd></div><div><dt>POSITION</dt><dd>:</dd></div></dl></div>
-        <div><h2>CREATED BY ;</h2><span className="quotation-signature-space"></span><dl><div><dt>NAME</dt><dd>: {createdBy}</dd></div><div><dt>POSITION</dt><dd>: Marketing / Sales</dd></div></dl></div>
+        <div><h2>CREATED BY ;</h2><span className="quotation-created-stamp"><img className="quotation-stamp-logo" src="/quotation-signature-logo.png" alt="" /><img className="quotation-stamp-signature" src="/quotation-signature.png" alt="" /></span><dl><div><dt>NAME</dt><dd>: {createdBy}</dd></div><div><dt>POSITION</dt><dd>: Marketing Manager</dd></div></dl></div>
       </section>
     </article>
   );
