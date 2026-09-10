@@ -353,7 +353,7 @@ export async function POST(request: NextRequest) {
         project: String(body.project || ""), reference_no: referenceNo,
         document_date: documentDate, due_date: String(body.due_date || ""), subtotal,
         tax_percent: taxPercent, tax_amount: taxAmount, grand_total: grandTotal,
-        notes: String(body.notes || ""), status: type === "DELIVERY_NOTE" ? (deliveryComplete ? "COMPLETE" : "PARTIAL") : type === "RECEIPT" ? "ISSUED" : "DRAFT", created_at: now, updated_at: now,
+        notes: String(body.notes || ""), status: type === "DELIVERY_NOTE" ? (deliveryComplete ? "COMPLETE" : "PARTIAL") : "DRAFT", created_at: now, updated_at: now,
       }).select("id").single();
       if (documentError || !inserted) throw documentError ?? new Error("Dokumen gagal dibuat.");
       const documentId = Number(inserted.id);
@@ -442,7 +442,7 @@ export async function POST(request: NextRequest) {
       taxAmount,
       grandTotal,
       String(body.notes || ""),
-      type === "DELIVERY_NOTE" ? (deliveryComplete ? "COMPLETE" : "PARTIAL") : type === "RECEIPT" ? "ISSUED" : "DRAFT",
+      type === "DELIVERY_NOTE" ? (deliveryComplete ? "COMPLETE" : "PARTIAL") : "DRAFT",
       now,
       now
     ).run();
@@ -520,7 +520,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, id: documentId, document_number: number });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to create document" }, { status: 500 });
+    const message = error instanceof Error
+      ? error.message
+      : error && typeof error === "object" && "message" in error
+        ? String(error.message)
+        : "Unable to create document";
+    console.error("[api/documents][POST] gagal membuat dokumen", error);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
