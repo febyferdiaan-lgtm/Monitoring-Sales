@@ -510,6 +510,56 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .print-notes p { margin: 8px 0 0; color: #666; font-size: 9px; line-height: 1.55; }
 .print-totals { display: grid; gap: 9px; }.print-totals div { display: flex; justify-content: space-between; gap: 20px; font-size: 9px; }.print-totals div:last-child { margin-top: 3px; padding: 12px; background: var(--red); color: #fff; font-size: 12px; }
 .print-footer { margin-top: 60px; display: flex; justify-content: space-between; gap: 30px; color: #777; font-size: 9px; }.print-footer p { max-width: 330px; }.print-footer div { min-width: 200px; display: flex; flex-direction: column; gap: 52px; text-align: center; }.print-footer strong { color: #252525; font-size: 9px; }
+.quotation-print-document { position: relative; width: 210mm; min-height: 297mm; margin: 0 auto 20px; padding: 10mm; overflow: hidden; background: #fff; color: #111; box-shadow: 0 8px 30px rgba(0,0,0,.12); font-family: Arial, sans-serif; box-sizing: border-box; }
+.quotation-print-document::before { content: ""; position: absolute; inset: 8mm; z-index: 0; border: .35mm solid #111; pointer-events: none; }
+.quotation-print-document > * { position: relative; z-index: 1; }
+.quotation-template-header { min-height: 28mm; display: grid; grid-template-columns: 61% 39%; gap: 8mm; }
+.quotation-company { min-width: 0; padding: 1mm 0 0 1mm; }
+.quotation-company-top { display: flex; align-items: flex-start; gap: 5mm; }
+.quotation-company-top img { width: 43mm; height: auto; object-fit: contain; }
+.quotation-company-top address { padding-top: 2.5mm; display: flex; gap: 1.5mm; color: #373737; font-size: 6.7px; font-style: normal; line-height: 1.35; white-space: nowrap; }
+.quotation-pin { color: #f51f2c; font-size: 11px; line-height: 1; }
+.quotation-company > em { display: block; margin: .8mm 0 0 1mm; color: #244880; font-size: 6.5px; font-weight: 800; text-decoration: underline; }
+.quotation-heading { position: relative; padding-right: 1mm; }
+.quotation-heading::after { content: ""; position: absolute; top: -1.5mm; right: -5mm; width: 20mm; height: 24mm; background: linear-gradient(135deg, transparent 0 24%, #f51f2c 25% 43%, transparent 44% 54%, #ef1724 55% 72%, transparent 73%); transform: rotate(90deg); transform-origin: center; pointer-events: none; }
+.quotation-heading h1 { position: relative; z-index: 1; width: 50mm; margin: 0 0 2mm; padding: .6mm 1mm; border: .35mm solid #111; background: #fff; font-size: 17px; line-height: 1; text-align: center; letter-spacing: .02em; }
+.quotation-heading dl { position: relative; z-index: 1; width: 58mm; margin: 0; padding: 1mm; border: .35mm solid #111; background: rgba(255,255,255,.94); font-size: 6.7px; }
+.quotation-heading dl div { display: grid; grid-template-columns: 29mm 1fr; gap: 1mm; line-height: 1.5; }
+.quotation-heading dt { font-weight: 800; }.quotation-heading dd { margin: 0; white-space: nowrap; }
+.quotation-recipient { min-height: 23mm; padding: 5mm 1mm 2mm; font-size: 7.5px; }
+.quotation-to { min-height: 4mm; padding: .6mm 1mm; display: flex; gap: 2mm; align-items: center; border: .35mm solid #111; background: #fb7d84; font-weight: 700; }
+.quotation-recipient > p { margin: 1mm 1mm; color: #303030; font-size: 6.8px; }
+.quotation-pic { margin: 8mm 0 0 6mm; display: flex; gap: 2mm; }
+.quotation-template-table { width: 100%; min-height: 124mm; border-collapse: collapse; table-layout: fixed; }
+.quotation-template-table th, .quotation-template-table td { border-left: .25mm solid #111; border-right: .25mm solid #111; }
+.quotation-template-table th { height: 4mm; padding: .6mm .7mm; border-top: .35mm solid #111; border-bottom: .35mm solid #111; background: #fb7d84; font-size: 6.8px; font-weight: 900; text-align: center; }
+.quotation-template-table td { height: 6.4mm; padding: .7mm; font-size: 6.8px; vertical-align: top; }
+.quotation-template-table tbody tr:nth-child(even) td { background: #ededed; }
+.quotation-template-table tbody tr:last-child td { border-bottom: .35mm solid #111; }
+.quotation-template-table th:nth-child(1), .quotation-template-table td:nth-child(1) { width: 7mm; text-align: center; }
+.quotation-template-table th:nth-child(2), .quotation-template-table td:nth-child(2) { width: 24mm; }
+.quotation-template-table th:nth-child(3), .quotation-template-table td:nth-child(3) { width: 51mm; }
+.quotation-template-table th:nth-child(4), .quotation-template-table td:nth-child(4) { width: 8mm; text-align: center; }
+.quotation-template-table th:nth-child(5), .quotation-template-table td:nth-child(5) { width: 9mm; text-align: center; }
+.quotation-template-table th:nth-child(6), .quotation-template-table td:nth-child(6), .quotation-template-table th:nth-child(7), .quotation-template-table td:nth-child(7) { width: 25mm; }
+.quotation-template-table th:nth-child(8), .quotation-template-table td:nth-child(8) { width: 29mm; text-align: center; }
+.quotation-money { display: grid; grid-template-columns: 6mm 1fr; gap: 1mm; }.quotation-money i { font-style: normal; }.quotation-money b { font-weight: 400; text-align: right; }
+.quotation-empty-row td { height: 6.4mm; }
+.quotation-summary-grid { margin-top: 5mm; display: grid; grid-template-columns: 1fr 52mm; gap: 10mm; }
+.quotation-special-notes { min-height: 22mm; border: .35mm solid #111; }
+.quotation-special-notes h2 { margin: 0; padding: .7mm; border-bottom: .35mm solid #111; background: #fb7d84; font-size: 7px; }
+.quotation-special-notes ol { margin: 1mm 0 0; padding-left: 5mm; font-size: 6.8px; line-height: 1.65; }
+.quotation-totals-area table { width: 100%; border-collapse: collapse; font-size: 6.8px; }
+.quotation-totals-area th, .quotation-totals-area td { height: 3.4mm; padding: .5mm; border: .25mm solid #111; }
+.quotation-totals-area th { width: 25mm; font-weight: 400; }.quotation-totals-area td:nth-child(2) { width: 8mm; text-align: center; }.quotation-totals-area td:last-child { text-align: right; }
+.quotation-totals-area .quotation-grand-total th, .quotation-totals-area .quotation-grand-total td { font-weight: 900; }
+.quotation-total-note { min-height: 6mm; margin-top: 2.5mm; padding: .7mm; border: .35mm solid #111; font-size: 6.5px; }
+.quotation-thanks { margin: 4mm 0 0 1mm; font-size: 7px; font-weight: 900; line-height: 1.55; }
+.quotation-signatures { margin-top: 9mm; display: flex; justify-content: space-between; gap: 15mm; }
+.quotation-signatures > div { width: 55mm; min-height: 27mm; padding: 1.5mm 3mm; display: flex; flex-direction: column; border: .25mm solid #111; box-sizing: border-box; }
+.quotation-signatures h2 { margin: 0; font-size: 7px; }.quotation-signatures em { margin: 2mm auto 0; font-size: 6.5px; }
+.quotation-signatures dl { margin: auto 0 0; font-size: 6.8px; }.quotation-signatures dl div { display: grid; grid-template-columns: 16mm 1fr; gap: 1mm; line-height: 1.5; }.quotation-signatures dt { font-weight: 900; }.quotation-signatures dd { margin: 0; }
+.quotation-signature-space { min-height: 12mm; }
 .delivery-print-document { width: 210mm; min-height: 297mm; margin: 0 auto 20px; padding: 12mm; border: 1.2px solid #242424; background: #fff; color: #171717; box-shadow: 0 8px 30px rgba(0,0,0,.12); font-family: Arial, sans-serif; }
 .delivery-print-header { min-height: 34mm; padding: 2mm 3mm 4mm; display: flex; align-items: center; justify-content: space-between; gap: 20mm; border-bottom: 2px solid #242424; }
 .delivery-print-header img { width: 58mm; max-height: 28mm; object-fit: contain; object-position: left center; }
@@ -660,6 +710,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .document-preview-backdrop { position: static; padding: 0; display: block; background: #fff; }
   .document-preview-modal { width: auto; max-height: none; overflow: visible; padding: 0; background: #fff; box-shadow: none; }
   .print-document { width: 210mm; min-height: 297mm; margin: 0; padding: 16mm; box-shadow: none; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .quotation-print-document { width: 210mm; min-height: 297mm; margin: 0; padding: 10mm; box-shadow: none; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .delivery-print-document { width: 210mm; min-height: 297mm; margin: 0; padding: 12mm; box-shadow: none; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
 

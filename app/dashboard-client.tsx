@@ -2221,7 +2221,7 @@ export default function DashboardClient() {
               </section>
 
               <div className={`document-footer-form ${isDeliveryDraft ? "delivery-footer" : ""}`}>
-                <label>Catatan<textarea value={documentDraft.notes} onChange={(e) => setDocumentDraft({ ...documentDraft, notes: e.target.value })} /></label>
+                <label>Catatan<textarea value={documentDraft.notes} onChange={(e) => setDocumentDraft({ ...documentDraft, notes: e.target.value })} placeholder={documentDraft.type === "QUOTATION" ? "Contoh:\nTerm of Payment: Cash Before Delivery\nValidity: 7 Days\nFranco Site" : "Catatan tambahan dokumen"} />{documentDraft.type === "QUOTATION" && <small>Baris “Term of Payment:” dan “Validity:” akan tampil pada informasi quotation; baris lainnya masuk ke Special Notes.</small>}</label>
                 {!isDeliveryDraft && <div className="document-totals">
                   <div><span>Subtotal</span><strong>{money.format(documentSubtotal)}</strong></div>
                   <div><span>PPN {documentDraft.tax_percent}%</span><strong>{money.format(documentTax)}</strong></div>
@@ -2264,7 +2264,7 @@ export default function DashboardClient() {
         <div className="modal-backdrop document-preview-backdrop" onMouseDown={() => setSelectedDocument(null)}>
           <section className="modal document-preview-modal" role="dialog" aria-modal="true" aria-labelledby="preview-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className="preview-toolbar"><button className="secondary-button" onClick={() => setSelectedDocument(null)}><X size={16} /> Tutup</button><button className="primary-button" onClick={() => window.print()}><Printer size={16} /> Cetak / Simpan PDF</button></div>
-            <DocumentPreview document={selectedDocument} />
+            <DocumentPreview document={selectedDocument} createdBy={identity?.name || "Sales MDA"} />
           </section>
         </div>
       )}
@@ -2441,8 +2441,89 @@ export default function DashboardClient() {
   );
 }
 
-function DocumentPreview({ document }: { document: SalesDocument }) {
+const formatPrintDate = (value: string) => {
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.valueOf())
+    ? value
+    : date.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+};
+
+const quotationNoteDetails = (notes: string) => {
+  const lines = notes.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const term = lines.find((line) => /^(term of payment|payment term)\s*:/i.test(line))?.split(":").slice(1).join(":").trim();
+  const validity = lines.find((line) => /^(validity|validation quotation|masa berlaku)\s*:/i.test(line))?.split(":").slice(1).join(":").trim();
+  const specialNotes = lines.filter((line) => !/^(term of payment|payment term|validity|validation quotation|masa berlaku)\s*:/i.test(line));
+  return {
+    term: term || "Sesuai Kesepakatan",
+    validity: validity || "7 Days",
+    specialNotes: specialNotes.length ? specialNotes : ["Franco Site", "Validity 7 Days"],
+  };
+};
+
+function QuotationPreview({ document, createdBy }: { document: SalesDocument; createdBy: string }) {
+  const details = quotationNoteDetails(document.notes);
+  const emptyRows = Array.from({ length: Math.max(0, 14 - document.items.length) });
+  const plainNumber = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 });
+  return (
+    <article className="quotation-print-document">
+      <header className="quotation-template-header">
+        <div className="quotation-company">
+          <div className="quotation-company-top">
+            <img src="/mda-logo.svg" alt="PT MDA Amanah Sejahtera" />
+            <address><span className="quotation-pin">●</span><span>Jl. River Garden Boulevard Blok B2 No. 21B<br />Kel. Cakung Timur, Kec. Cakung<br />Jakarta Timur 13910</span></address>
+          </div>
+          <em>CONSISTENTLY INNOVATE TO ACHIEVE MEANINGFUL GOALS</em>
+        </div>
+        <div className="quotation-heading">
+          <h1>QUOTATION</h1>
+          <dl>
+            <div><dt>DATE</dt><dd>: {formatPrintDate(document.document_date)}</dd></div>
+            <div><dt>QUOTATION NUMBER</dt><dd>: {document.document_number}</dd></div>
+            <div><dt>TERM OF PAYMENT</dt><dd>: {details.term}</dd></div>
+            <div><dt>VALIDATION QUOTATION</dt><dd>: {details.validity}</dd></div>
+          </dl>
+        </div>
+      </header>
+
+      <section className="quotation-recipient">
+        <div className="quotation-to"><strong>To :</strong><span>{document.customer}</span></div>
+        {document.customer_address && <p>{document.customer_address}</p>}
+        <div className="quotation-pic"><strong>PIC :</strong><span>{document.customer_pic || ""}</span></div>
+      </section>
+
+      <table className="quotation-template-table">
+        <thead><tr><th>NO</th><th>PART NO</th><th>DESC</th><th>QTY</th><th>UOM</th><th>PRICE</th><th>AMOUNT</th><th>REMARK</th></tr></thead>
+        <tbody>
+          {document.items.map((item, index) => <tr key={item.id}>
+            <td>{index + 1}</td><td>{item.part_number || "-"}</td><td>{item.description}</td><td>{item.quantity}</td><td>{item.unit}</td>
+            <td><span className="quotation-money"><i>Rp</i><b>{plainNumber.format(item.unit_price)}</b></span></td>
+            <td><span className="quotation-money"><i>Rp</i><b>{plainNumber.format(item.line_total)}</b></span></td><td>-</td>
+          </tr>)}
+          {emptyRows.map((_, index) => <tr className="quotation-empty-row" key={`empty-${index}`}><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>)}
+        </tbody>
+      </table>
+
+      <section className="quotation-summary-grid">
+        <div className="quotation-special-notes"><h2>SPECIAL NOTES</h2><ol>{details.specialNotes.map((note, index) => <li key={`${note}-${index}`}>{note.replace(/^\d+[.)]\s*/, "")}</li>)}</ol></div>
+        <div className="quotation-totals-area">
+          <table><tbody><tr><th>SUB TOTAL</th><td>Rp</td><td>{plainNumber.format(document.subtotal)}</td></tr><tr><th>PPN</th><td>{document.tax_percent}%</td><td>{plainNumber.format(document.tax_amount)}</td></tr><tr className="quotation-grand-total"><th>TOTAL</th><td>Rp</td><td>{plainNumber.format(document.grand_total)}</td></tr></tbody></table>
+          <div className="quotation-total-note">{document.project || ""}</div>
+        </div>
+      </section>
+
+      <p className="quotation-thanks">THANK YOU FOR YOUR ATTENTION AND COOPERATION,<br />WE LOOK FORWARD TO WORKING WITH YOUR COMPANY.</p>
+
+      <section className="quotation-signatures">
+        <div><h2>ACCEPTED BY ;</h2><em>Dated ;</em><dl><div><dt>NAME</dt><dd>:</dd></div><div><dt>POSITION</dt><dd>:</dd></div></dl></div>
+        <div><h2>CREATED BY ;</h2><span className="quotation-signature-space"></span><dl><div><dt>NAME</dt><dd>: {createdBy}</dd></div><div><dt>POSITION</dt><dd>: Marketing / Sales</dd></div></dl></div>
+      </section>
+    </article>
+  );
+}
+
+function DocumentPreview({ document, createdBy }: { document: SalesDocument; createdBy: string }) {
   if (document.document_type === "DELIVERY_NOTE") return <DeliveryNotePreview document={document} />;
+  if (document.document_type === "QUOTATION") return <QuotationPreview document={document} createdBy={createdBy} />;
   const isDelivery = false;
   const title = document.document_type === "INVOICE" ? "INVOICE" : "QUOTATION";
   return (
