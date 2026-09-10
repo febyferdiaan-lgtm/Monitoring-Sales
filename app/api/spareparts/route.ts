@@ -15,6 +15,43 @@ type SparePartInput = {
   notes?: string;
 };
 
+type SalesSummary = {
+  sold_quantity: number;
+  top_customer: string;
+  top_customer_quantity: number;
+};
+
+function parseQuantity(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const normalized = String(value ?? "").trim().replace(/\s/g, "").replace(",", ".");
+  const quantity = Number(normalized);
+  return Number.isFinite(quantity) ? quantity : 0;
+}
+
+function addSale(
+  sales: Map<number, Map<string, number>>,
+  partId: number | undefined,
+  customerValue: unknown,
+  quantityValue: unknown,
+) {
+  const customer = String(customerValue ?? "").trim();
+  const quantity = parseQuantity(quantityValue);
+  if (!partId || !customer || quantity <= 0) return;
+  const customers = sales.get(partId) ?? new Map<string, number>();
+  customers.set(customer, (customers.get(customer) ?? 0) + quantity);
+  sales.set(partId, customers);
+}
+
+function summarizeSales(customers?: Map<string, number>): SalesSummary {
+  if (!customers?.size) return { sold_quantity: 0, top_customer: "", top_customer_quantity: 0 };
+  const ranked = [...customers.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "id"));
+  return {
+    sold_quantity: ranked.reduce((total, [, quantity]) => total + quantity, 0),
+    top_customer: ranked[0][0],
+    top_customer_quantity: ranked[0][1],
+  };
+}
+
 const schemaSql = `CREATE TABLE IF NOT EXISTS spare_parts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   part_number TEXT NOT NULL UNIQUE,
@@ -48,9 +85,65 @@ export async function GET(request: NextRequest) {
     if (!isSupabaseConfigured()) await seedSparePartsFromExcel();
     if (isSupabaseConfigured()) {
       const supabase = await createSupabaseServerClient();
-      const { data, error } = await supabase.from("spare_parts").select("*")
+      const { data: parts, error } = await supabase.from("spare_parts").select("*")
         .eq("is_active", true).order("updated_at", { ascending: false }).order("name");
       if (error) throw error;
+
+      const activeParts = parts ?? [];
+      const partIdByNumber = new Map(
+        activeParts.map((part) => [String(part.part_number ?? "").trim().toUpperCase(), Number(part.id)]),
+      );
+      const sales = new Map<number, Map<string, number>>();
+
+      const { data: invoiceDocuments, error: documentError } = await supabase.from("sales_documents")
+        .select("id,customer").eq("document_type", "INVOICE").limit(5000);
+      if (documentError) throw documentError;
+      const invoiceCustomerById = new Map(
+        (invoiceDocuments ?? []).map((document) => [Number(document.id), String(document.customer ?? "").trim()]),
+      );
+      const invoiceIds = [...invoiceCustomerById.keys()];
+      for (let offset = 0; offset < invoiceIds.length; offset += 200) {
+        for (let itemOffset = 0; ; itemOffset += 1000) {
+          const { data: items, error: itemError } = await supabase.from("sales_document_items")
+            .select("document_id,spare_part_id,part_number,quantity")
+            .in("document_id", invoiceIds.slice(offset, offset + 200)).range(itemOffset, itemOffset + 999);
+          if (itemError) throw itemError;
+          (items ?? []).forEach((item) => {
+            const partId = Number(item.spare_part_id) || partIdByNumber.get(String(item.part_number ?? "").trim().toUpperCase());
+            addSale(sales, partId, invoiceCustomerById.get(Number(item.document_id)), item.quantity);
+          });
+          if ((items ?? []).length < 1000) break;
+        }
+      }
+
+      for (let offset = 0; ; offset += 1000) {
+        const { data: rows, error: excelError } = await supabase.from("excel_rows")
+          .select("customer,invoice_no,part_number,raw_json")
+          .neq("invoice_no", "").range(offset, offset + 999);
+        if (excelError) throw excelError;
+        (rows ?? []).forEach((row) => {
+          let raw: unknown = row.raw_json ?? {};
+          if (typeof raw === "string") {
+            try { raw = JSON.parse(raw || "{}"); } catch { raw = {}; }
+          }
+          const quantity = typeof raw === "object" && raw !== null && "invoice_qty" in raw
+            ? (raw as Record<string, unknown>).invoice_qty
+            : 0;
+          addSale(
+            sales,
+            partIdByNumber.get(String(row.part_number ?? "").trim().toUpperCase()),
+            row.customer,
+            quantity,
+          );
+        });
+        if ((rows ?? []).length < 1000) break;
+      }
+
+      const data = activeParts
+        .map((part) => ({ ...part, ...summarizeSales(sales.get(Number(part.id))) }))
+        .sort((a, b) => Number(b.sold_quantity) - Number(a.sold_quantity)
+          || String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? ""))
+          || String(a.name ?? "").localeCompare(String(b.name ?? ""), "id"));
       return NextResponse.json({ data });
     }
     const result = await (await getDb()).prepare(
