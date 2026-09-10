@@ -13,9 +13,10 @@ type DocumentItem = {
 };
 
 type DocumentInput = {
-  type?: "QUOTATION" | "INVOICE" | "DELIVERY_NOTE";
+  type?: "QUOTATION" | "INVOICE" | "DELIVERY_NOTE" | "RECEIPT";
   quotation_sequence?: string;
   delivery_sequence?: string;
+  receipt_sequence?: string;
   customer?: string;
   customer_address?: string;
   customer_pic?: string;
@@ -94,7 +95,7 @@ const sequenceFromNumber = (value: unknown, year: number) => {
   return match ? Number(match[1]) : 0;
 };
 
-type DocumentType = "QUOTATION" | "INVOICE" | "DELIVERY_NOTE";
+type DocumentType = "QUOTATION" | "INVOICE" | "DELIVERY_NOTE" | "RECEIPT";
 
 const deliveryItemKey = (item: DocumentItem) => {
   const sparePartId = Number(item.spare_part_id || 0);
@@ -125,7 +126,7 @@ async function nextDocumentNumber(type: DocumentType, date: string, requestedSeq
   const year = Number.isNaN(parsed.valueOf()) ? new Date().getFullYear() : parsed.getFullYear();
   const month = Number.isNaN(parsed.valueOf()) ? new Date().getMonth() : parsed.getMonth();
   const requested = requestedSequence.trim();
-  const sequenceLabel = type === "DELIVERY_NOTE" ? "surat jalan" : "quotation";
+  const sequenceLabel = type === "DELIVERY_NOTE" ? "surat jalan" : type === "RECEIPT" ? "kwitansi" : type === "INVOICE" ? "invoice" : "quotation";
   if (requested && !/^[0-9]{1,3}$/.test(requested)) throw new Error(`Tiga digit awal nomor ${sequenceLabel} harus berupa angka.`);
   let nextSequence = Number(requested || 0);
   if (isSupabaseConfigured()) {
@@ -179,7 +180,7 @@ async function nextDocumentNumber(type: DocumentType, date: string, requestedSeq
   }
   if (nextSequence < 1 || nextSequence > 999) throw new Error(`Nomor urut ${sequenceLabel} harus berada di antara 001 dan 999.`);
   const sequence = String(nextSequence).padStart(3, "0");
-  const suffix = type === "INVOICE" ? "MDA-INV" : type === "DELIVERY_NOTE" ? "SJ-MDA" : "MDA-QUOT";
+  const suffix = type === "INVOICE" ? "MDA-INV" : type === "DELIVERY_NOTE" ? "SJ-MDA" : type === "RECEIPT" ? "MDA-HO/Kwitansi" : "MDA-QUOT";
   return `${sequence}/${suffix}/${romanMonths[month]}/${year}`;
 }
 
@@ -225,7 +226,7 @@ export async function POST(request: NextRequest) {
     if (access.error) return NextResponse.json({ error: access.error }, { status: access.status });
     await ensureDatabase();
     const body = await request.json() as DocumentInput;
-    const type: DocumentType = body.type === "INVOICE" ? "INVOICE" : body.type === "DELIVERY_NOTE" ? "DELIVERY_NOTE" : "QUOTATION";
+    const type: DocumentType = body.type === "INVOICE" ? "INVOICE" : body.type === "DELIVERY_NOTE" ? "DELIVERY_NOTE" : body.type === "RECEIPT" ? "RECEIPT" : "QUOTATION";
     const customer = String(body.customer || "").trim();
     const items = (body.items ?? []).filter((item) => String(item.description || "").trim() && Number(item.quantity || 0) > 0);
     if (!customer || !items.length) return NextResponse.json({ error: "Customer and items are required" }, { status: 400 });
@@ -233,12 +234,17 @@ export async function POST(request: NextRequest) {
     if (type === "DELIVERY_NOTE" && !referenceNo) {
       return NextResponse.json({ error: "Nomor PO wajib dipilih untuk membuat surat jalan." }, { status: 400 });
     }
+    if (type === "RECEIPT" && !referenceNo) {
+      return NextResponse.json({ error: "Invoice sumber wajib dipilih untuk membuat kwitansi." }, { status: 400 });
+    }
 
     const documentDate = String(body.document_date || new Date().toISOString().slice(0, 10));
     const requestedSequence = type === "QUOTATION"
       ? String(body.quotation_sequence || "")
       : type === "DELIVERY_NOTE"
         ? String(body.delivery_sequence || "")
+        : type === "RECEIPT"
+          ? String(body.receipt_sequence || "")
         : "";
     const number = await nextDocumentNumber(type, documentDate, requestedSequence);
     if (isSupabaseConfigured()) {
@@ -314,6 +320,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (type === "RECEIPT") {
+      if (isSupabaseConfigured()) {
+        const supabase = await createSupabaseServerClient();
+        const [{ data: sourceInvoices, error: sourceError }, { data: existingReceipts, error: receiptError }] = await Promise.all([
+          supabase.from("sales_documents").select("id,grand_total").eq("document_type", "INVOICE").eq("document_number", referenceNo).limit(1),
+          supabase.from("sales_documents").select("id").eq("document_type", "RECEIPT").eq("reference_no", referenceNo).limit(1),
+        ]);
+        if (sourceError) throw sourceError;
+        if (receiptError) throw receiptError;
+        if (!sourceInvoices?.length) return NextResponse.json({ error: `Invoice ${referenceNo} tidak ditemukan.` }, { status: 404 });
+        if (existingReceipts?.length) return NextResponse.json({ error: `Kwitansi untuk invoice ${referenceNo} sudah dibuat.` }, { status: 409 });
+      } else {
+        const db = await getDb();
+        const sourceInvoice = await db.prepare("SELECT id FROM sales_documents WHERE document_type = 'INVOICE' AND document_number = ? COLLATE NOCASE LIMIT 1").bind(referenceNo).first();
+        const existingReceipt = await db.prepare("SELECT id FROM sales_documents WHERE document_type = 'RECEIPT' AND reference_no = ? COLLATE NOCASE LIMIT 1").bind(referenceNo).first();
+        if (!sourceInvoice) return NextResponse.json({ error: `Invoice ${referenceNo} tidak ditemukan.` }, { status: 404 });
+        if (existingReceipt) return NextResponse.json({ error: `Kwitansi untuk invoice ${referenceNo} sudah dibuat.` }, { status: 409 });
+      }
+    }
+
     const taxPercent = type === "DELIVERY_NOTE" ? 0 : Math.max(0, Number(body.tax_percent ?? 11));
     const subtotal = type === "DELIVERY_NOTE" ? 0 : items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
     const taxAmount = subtotal * taxPercent / 100;
@@ -327,7 +353,7 @@ export async function POST(request: NextRequest) {
         project: String(body.project || ""), reference_no: referenceNo,
         document_date: documentDate, due_date: String(body.due_date || ""), subtotal,
         tax_percent: taxPercent, tax_amount: taxAmount, grand_total: grandTotal,
-        notes: String(body.notes || ""), status: type === "DELIVERY_NOTE" ? (deliveryComplete ? "COMPLETE" : "PARTIAL") : "DRAFT", created_at: now, updated_at: now,
+        notes: String(body.notes || ""), status: type === "DELIVERY_NOTE" ? (deliveryComplete ? "COMPLETE" : "PARTIAL") : type === "RECEIPT" ? "ISSUED" : "DRAFT", created_at: now, updated_at: now,
       }).select("id").single();
       if (documentError || !inserted) throw documentError ?? new Error("Dokumen gagal dibuat.");
       const documentId = Number(inserted.id);
@@ -338,6 +364,7 @@ export async function POST(request: NextRequest) {
         line_total: type === "DELIVERY_NOTE" ? 0 : Number(item.quantity || 0) * Number(item.unit_price || 0),
       })));
       if (itemError) throw itemError;
+      if (type === "RECEIPT") return NextResponse.json({ ok: true, id: documentId, document_number: number });
       if (type === "DELIVERY_NOTE" && linkedSale) {
         const deliveryNumbers = [...new Set([...(String(linkedSale.delivery_no || "").split(",").map((value) => value.trim()).filter(Boolean)), number])];
         const { error: deliverySaleError } = await supabase.from("sales").update({
@@ -415,7 +442,7 @@ export async function POST(request: NextRequest) {
       taxAmount,
       grandTotal,
       String(body.notes || ""),
-      type === "DELIVERY_NOTE" ? (deliveryComplete ? "COMPLETE" : "PARTIAL") : "DRAFT",
+      type === "DELIVERY_NOTE" ? (deliveryComplete ? "COMPLETE" : "PARTIAL") : type === "RECEIPT" ? "ISSUED" : "DRAFT",
       now,
       now
     ).run();
@@ -437,6 +464,7 @@ export async function POST(request: NextRequest) {
     )));
 
     const salesExists = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sales'").first();
+    if (type === "RECEIPT") return NextResponse.json({ ok: true, id: documentId, document_number: number });
     if (salesExists) {
       if (type === "DELIVERY_NOTE" && linkedSale) {
         const deliveryNumbers = [...new Set([...(String(linkedSale.delivery_no || "").split(",").map((value) => value.trim()).filter(Boolean)), number])];
@@ -739,9 +767,13 @@ export async function DELETE(request: NextRequest) {
           return NextResponse.json({ error: "Quotation sudah memiliki surat jalan, invoice, atau pembayaran. Hapus dokumen lanjutan terlebih dahulu." }, { status: 409 });
         }
       } else if (type === "INVOICE") {
-        const { data: sales, error: saleError } = await supabase.from("sales")
-          .select("id,delivery_no,po_no,amount_paid").eq("invoice_no", documentNumber).limit(1);
+        const [{ data: sales, error: saleError }, { data: receipts, error: receiptError }] = await Promise.all([
+          supabase.from("sales").select("id,delivery_no,po_no,amount_paid").eq("invoice_no", documentNumber).limit(1),
+          supabase.from("sales_documents").select("id").eq("document_type", "RECEIPT").eq("reference_no", documentNumber).limit(1),
+        ]);
         if (saleError) throw saleError;
+        if (receiptError) throw receiptError;
+        if (receipts?.length) return NextResponse.json({ error: "Invoice sudah memiliki kwitansi. Hapus kwitansi lebih dahulu." }, { status: 409 });
         linkedSale = sales?.[0] ?? null;
         if (Number(linkedSale?.amount_paid || 0) > 0) {
           return NextResponse.json({ error: "Invoice sudah memiliki pembayaran dan tidak dapat dihapus." }, { status: 409 });
@@ -841,6 +873,8 @@ export async function DELETE(request: NextRequest) {
     } else if (salesExists && type === "INVOICE") {
       linkedSale = await db.prepare("SELECT id, delivery_no, po_no, amount_paid FROM sales WHERE invoice_no = ? COLLATE NOCASE LIMIT 1")
         .bind(documentNumber).first<Record<string, unknown>>();
+      const receipt = await db.prepare("SELECT id FROM sales_documents WHERE document_type = 'RECEIPT' AND reference_no = ? COLLATE NOCASE LIMIT 1").bind(documentNumber).first();
+      if (receipt) return NextResponse.json({ error: "Invoice sudah memiliki kwitansi. Hapus kwitansi lebih dahulu." }, { status: 409 });
       if (Number(linkedSale?.amount_paid || 0) > 0) return NextResponse.json({ error: "Invoice sudah memiliki pembayaran dan tidak dapat dihapus." }, { status: 409 });
       if (linkedSale) {
         const paymentsExist = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='payment_confirmations'").first();
