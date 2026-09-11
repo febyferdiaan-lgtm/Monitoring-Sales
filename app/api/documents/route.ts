@@ -794,8 +794,11 @@ export async function DELETE(request: NextRequest) {
 
       const { error: itemError } = await supabase.from("sales_document_items").delete().eq("document_id", id);
       if (itemError) throw itemError;
-      const { error: documentError } = await supabase.from("sales_documents").delete().eq("id", id);
+      const { data: deletedDocuments, error: documentError } = await supabase.from("sales_documents").delete().eq("id", id).select("id");
       if (documentError) throw documentError;
+      if (!deletedDocuments?.length) {
+        return NextResponse.json({ error: "Dokumen tidak terhapus dari database. Silakan muat ulang lalu coba kembali sebagai Admin." }, { status: 409 });
+      }
       const now = new Date().toISOString();
 
       if (type === "DELIVERY_NOTE" && linkedSale) {
@@ -840,8 +843,9 @@ export async function DELETE(request: NextRequest) {
           if (poIds.length) {
             const { error: poItemError } = await supabase.from("sales_document_items").delete().in("document_id", poIds);
             if (poItemError) throw poItemError;
-            const { error: poDeleteError } = await supabase.from("sales_documents").delete().in("id", poIds);
+            const { data: deletedPoDocuments, error: poDeleteError } = await supabase.from("sales_documents").delete().in("id", poIds).select("id");
             if (poDeleteError) throw poDeleteError;
+            if ((deletedPoDocuments?.length ?? 0) !== poIds.length) throw new Error("Dokumen PO terkait belum terhapus seluruhnya.");
           }
         }
         const { error: saleDeleteError } = await supabase.from("sales").delete().eq("id", Number(linkedSale.id));
