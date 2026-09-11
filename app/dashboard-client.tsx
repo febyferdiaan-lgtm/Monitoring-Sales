@@ -436,10 +436,8 @@ export default function DashboardClient() {
   const [selectedDocument, setSelectedDocument] = useState<SalesDocument | null>(null);
   const [editingDocument, setEditingDocument] = useState<SalesDocument | null>(null);
   const [deletingDocument, setDeletingDocument] = useState<SalesDocument | null>(null);
-  const [editingQuotationDocument, setEditingQuotationDocument] = useState<SalesDocument | null>(null);
-  const [quotationSequenceDraft, setQuotationSequenceDraft] = useState("");
-  const [editingDeliveryDocument, setEditingDeliveryDocument] = useState<SalesDocument | null>(null);
-  const [deliverySequenceDraft, setDeliverySequenceDraft] = useState("");
+  const [editingNumberDocument, setEditingNumberDocument] = useState<SalesDocument | null>(null);
+  const [documentNumberDraft, setDocumentNumberDraft] = useState("");
   const [deliverySource, setDeliverySource] = useState<{ quotation: SalesDocument; sale: Sale } | null>(null);
   const [deliveryMode, setDeliveryMode] = useState<"FULL" | "PARTIAL">("FULL");
   const [draft, setDraft] = useState<DraftSale>(emptyDraft);
@@ -1300,67 +1298,32 @@ export default function DashboardClient() {
   const receiptSequence = documentDraft.receipt_sequence.padStart(3, "0");
   const receiptNumberPreview = `${receiptSequence}/MDA-HO/Kwitansi/${documentRomanMonths[quotationMonth]}/${quotationYear}`;
 
-  const openQuotationNumberEdit = (document: SalesDocument) => {
-    const match = document.document_number.match(/^(\d{1,3})\//);
-    setEditingQuotationDocument(document);
-    setQuotationSequenceDraft(String(match ? Number(match[1]) : 1).padStart(3, "0"));
+  const documentTypeLabel = (type: SalesDocument["document_type"]) => type === "INVOICE" ? "Invoice" : type === "DELIVERY_NOTE" ? "Surat Jalan" : type === "RECEIPT" ? "Kwitansi" : "Quotation";
+
+  const openDocumentNumberEdit = (document: SalesDocument) => {
+    setEditingNumberDocument(document);
+    setDocumentNumberDraft(document.document_number);
   };
 
-  const editedQuotationNumber = editingQuotationDocument
-    ? `${quotationSequenceDraft.padStart(3, "0")}${editingQuotationDocument.document_number.replace(/^\d{1,3}/, "")}`
-    : "";
-
-  const saveQuotationNumber = async (event: FormEvent) => {
+  const saveDocumentNumber = async (event: FormEvent) => {
     event.preventDefault();
-    if (!editingQuotationDocument || !isAdmin) return;
+    if (!editingNumberDocument || !isAdmin) return;
+    const documentLabel = documentTypeLabel(editingNumberDocument.document_type);
     setSaving(true);
     try {
       const response = await fetch("/api/documents", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: editingQuotationDocument.id, document_number: editedQuotationNumber }),
+        body: JSON.stringify({ id: editingNumberDocument.id, document_number: documentNumberDraft }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Nomor quotation belum berhasil diubah.");
-      setEditingQuotationDocument(null);
+      if (!response.ok) throw new Error(payload.error || `Nomor ${documentLabel.toLowerCase()} belum berhasil diubah.`);
+      setEditingNumberDocument(null);
       setSelectedDocument(null);
-      setNotice(`Nomor quotation berhasil diubah menjadi ${payload.document_number}.`);
+      setNotice(`Nomor ${documentLabel.toLowerCase()} berhasil diubah menjadi ${payload.document_number}.`);
       await Promise.all([loadBusinessData(), loadSales()]);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Nomor quotation belum berhasil diubah.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const openDeliveryNumberEdit = (document: SalesDocument) => {
-    const match = document.document_number.match(/^(\d{1,3})\//);
-    setEditingDeliveryDocument(document);
-    setDeliverySequenceDraft(String(match ? Number(match[1]) : 1).padStart(3, "0"));
-  };
-
-  const editedDeliveryNumber = editingDeliveryDocument
-    ? `${deliverySequenceDraft.padStart(3, "0")}${editingDeliveryDocument.document_number.replace(/^\d{1,3}/, "")}`
-    : "";
-
-  const saveDeliveryNumber = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!editingDeliveryDocument || !canEdit) return;
-    setSaving(true);
-    try {
-      const response = await fetch("/api/documents", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: editingDeliveryDocument.id, document_number: editedDeliveryNumber }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Nomor surat jalan belum berhasil diubah.");
-      setEditingDeliveryDocument(null);
-      setSelectedDocument(null);
-      setNotice(`Nomor surat jalan berhasil diubah menjadi ${payload.document_number}.`);
-      await Promise.all([loadBusinessData(), loadSales()]);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Nomor surat jalan belum berhasil diubah.");
+      setNotice(error instanceof Error ? error.message : `Nomor ${documentLabel.toLowerCase()} belum berhasil diubah.`);
     } finally {
       setSaving(false);
     }
@@ -2040,7 +2003,7 @@ export default function DashboardClient() {
                     <td>{document.document_date}</td>
                     <td className="number"><strong>{document.document_type === "DELIVERY_NOTE" ? `${document.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)} item` : money.format(document.grand_total)}</strong></td>
                     <td>{document.document_type === "INVOICE" ? receipt ? <button className="receipt-link ready" type="button" onClick={() => setSelectedDocument(receipt)}><BadgeCheck size={14} /> Lihat Kwitansi</button> : canEdit ? <button className="receipt-link" type="button" onClick={() => openReceiptForm(document)}><Plus size={14} /> Buat Kwitansi</button> : <span className="receipt-empty">Belum dibuat</span> : document.document_type === "RECEIPT" ? <button className="receipt-source" type="button" onClick={() => { const source = documents.find((candidate) => candidate.document_type === "INVOICE" && candidate.document_number === document.reference_no); if (source) setSelectedDocument(source); }}><small>Dari invoice</small><b>{document.reference_no}</b></button> : <span className="receipt-empty">—</span>}</td>
-                    <td><div className="row-actions"><button aria-label="Lihat dokumen" onClick={() => setSelectedDocument(document)}><FileText size={15} /></button><button aria-label="Cetak dokumen" onClick={() => printDocument(document)}><Printer size={15} /></button>{isAdmin && document.document_type !== "PURCHASE_ORDER" && document.document_type !== "RECEIPT" && <button className="quotation-number-edit document-content-edit" onClick={() => openDocumentEdit(document)}><Pencil size={13} /> Edit</button>}{isAdmin && document.document_type !== "PURCHASE_ORDER" && <button className="document-delete" onClick={() => setDeletingDocument(document)}><Trash2 size={13} /> Hapus</button>}{isAdmin && document.document_type === "QUOTATION" && <button className="quotation-number-edit" onClick={() => openQuotationNumberEdit(document)}><Pencil size={13} /> No. Quot</button>}{canEdit && document.document_type === "DELIVERY_NOTE" && <button className="quotation-number-edit delivery-number-edit" onClick={() => openDeliveryNumberEdit(document)}><Pencil size={13} /> No. SJ</button>}{canEdit && document.document_type === "QUOTATION" && !linkedSale?.po_no && <button className="convert-button po-convert" onClick={() => openPoFromQuotationDocument(document)}><ShoppingBag size={13} /> PO Diterima</button>}{linkedSale?.po_no && document.document_type === "QUOTATION" && <span className="po-linked-badge"><CheckCircle2 size={12} /> PO Diterima</span>}{canEdit && document.document_type === "QUOTATION" && linkedSale?.po_no && !deliveryProgress?.complete && <button className="convert-button delivery-convert" onClick={() => openDeliveryForm(document, linkedSale)}><Truck size={13} /> {deliveryProgress?.hasDelivery ? "Kirim Sisa" : "Siapkan Pengiriman"}</button>}{document.document_type === "QUOTATION" && deliveryProgress?.complete && <span className="delivery-complete-badge"><CheckCircle2 size={12} /> Terkirim {deliveryProgress.shippedQuantity}/{deliveryProgress.orderedQuantity}</span>}{canEdit && document.document_type === "DELIVERY_NOTE" && <button className="convert-button" onClick={() => openDocumentForm("INVOICE", document)}><ReceiptText size={13} /> Jadi Invoice</button>}</div></td>
+                    <td><div className="row-actions"><button aria-label="Lihat dokumen" onClick={() => setSelectedDocument(document)}><FileText size={15} /></button><button aria-label="Cetak dokumen" onClick={() => printDocument(document)}><Printer size={15} /></button>{isAdmin && document.document_type !== "PURCHASE_ORDER" && document.document_type !== "RECEIPT" && <button className="quotation-number-edit document-content-edit" onClick={() => openDocumentEdit(document)}><Pencil size={13} /> Edit</button>}{isAdmin && document.document_type !== "PURCHASE_ORDER" && <button className="document-delete" onClick={() => setDeletingDocument(document)}><Trash2 size={13} /> Hapus</button>}{isAdmin && document.document_type !== "PURCHASE_ORDER" && <button className="quotation-number-edit" onClick={() => openDocumentNumberEdit(document)}><Pencil size={13} /> Edit No.</button>}{canEdit && document.document_type === "QUOTATION" && !linkedSale?.po_no && <button className="convert-button po-convert" onClick={() => openPoFromQuotationDocument(document)}><ShoppingBag size={13} /> PO Diterima</button>}{linkedSale?.po_no && document.document_type === "QUOTATION" && <span className="po-linked-badge"><CheckCircle2 size={12} /> PO Diterima</span>}{canEdit && document.document_type === "QUOTATION" && linkedSale?.po_no && !deliveryProgress?.complete && <button className="convert-button delivery-convert" onClick={() => openDeliveryForm(document, linkedSale)}><Truck size={13} /> {deliveryProgress?.hasDelivery ? "Kirim Sisa" : "Siapkan Pengiriman"}</button>}{document.document_type === "QUOTATION" && deliveryProgress?.complete && <span className="delivery-complete-badge"><CheckCircle2 size={12} /> Terkirim {deliveryProgress.shippedQuantity}/{deliveryProgress.orderedQuantity}</span>}{canEdit && document.document_type === "DELIVERY_NOTE" && <button className="convert-button" onClick={() => openDocumentForm("INVOICE", document)}><ReceiptText size={13} /> Jadi Invoice</button>}</div></td>
                   </tr>;
                 })}
                 {!documents.length && <tr><td colSpan={7} className="empty-state">Belum ada quotation, surat jalan, invoice, atau kwitansi yang dibuat dari aplikasi.</td></tr>}
@@ -2238,7 +2201,7 @@ export default function DashboardClient() {
             <form onSubmit={saveDocument} className="document-form">
               <section className="document-meta">
                 <label>Jenis Dokumen<select value={documentDraft.type} disabled={isDeliveryDraft || isReceiptDraft || Boolean(editingDocument)} onChange={(e) => { const type = e.target.value as "QUOTATION" | "INVOICE"; setDocumentDraft({ ...documentDraft, type, quotation_sequence: type === "QUOTATION" ? documentDraft.quotation_sequence || suggestedQuotationSequence(documentDraft.document_date) : "" }); }}><option value="QUOTATION">Quotation</option><option value="DELIVERY_NOTE">Surat Jalan</option><option value="INVOICE">Invoice</option><option value="RECEIPT">Kwitansi</option></select></label>
-                {editingDocument && <label className="wide">Nomor Dokumen<input readOnly value={editingDocument.document_number} /><small>Gunakan tombol No. Quot atau No. SJ pada riwayat jika nomor urut perlu dikoreksi.</small></label>}
+                {editingDocument && <label className="wide">Nomor Dokumen<input readOnly value={editingDocument.document_number} /><small>Gunakan tombol Edit No. pada riwayat dokumen untuk mengoreksi nomor.</small></label>}
                 {!editingDocument && documentDraft.type === "QUOTATION" && <label className="wide quotation-number-field">Nomor Quotation<span className="quotation-number-control"><input required inputMode="numeric" pattern="[0-9]{3}" maxLength={3} value={documentDraft.quotation_sequence} onChange={(e) => setDocumentDraft({ ...documentDraft, quotation_sequence: e.target.value.replace(/\D/g, "").slice(0, 3) })} aria-label="Tiga digit awal nomor quotation" /><b>{quotationNumberPreview.slice(3)}</b></span><small>Sales dan Admin dapat menyesuaikan tiga digit awal agar urutannya melanjutkan nomor quotation terakhir.</small></label>}
                 {!editingDocument && documentDraft.type === "DELIVERY_NOTE" && <label className="wide quotation-number-field delivery-number-field">Nomor Surat Jalan<span className="quotation-number-control"><input required inputMode="numeric" pattern="[0-9]{3}" maxLength={3} value={documentDraft.delivery_sequence} onChange={(e) => setDocumentDraft({ ...documentDraft, delivery_sequence: e.target.value.replace(/\D/g, "").slice(0, 3) })} aria-label="Tiga digit awal nomor surat jalan" /><b>{deliveryNumberPreview.slice(3)}</b></span><small>Sales dan Admin dapat mengubah tiga digit awal. Saran nomor mengikuti SJ terakhir agar nomor tetap berkelanjutan.</small></label>}
                 {!editingDocument && documentDraft.type === "RECEIPT" && <label className="wide quotation-number-field receipt-number-field">Nomor Kwitansi<span className="quotation-number-control"><input required inputMode="numeric" pattern="[0-9]{3}" maxLength={3} value={documentDraft.receipt_sequence} onChange={(e) => setDocumentDraft({ ...documentDraft, receipt_sequence: e.target.value.replace(/\D/g, "").slice(0, 3) })} aria-label="Tiga digit awal nomor kwitansi" /><b>{receiptNumberPreview.slice(3)}</b></span><small>Nomor awal mengikuti invoice sumber dan tetap dapat disesuaikan sebelum disimpan.</small></label>}
@@ -2288,27 +2251,14 @@ export default function DashboardClient() {
         </div>
       )}
 
-      {editingQuotationDocument && isAdmin && (
-        <div className="modal-backdrop" onMouseDown={() => !saving && setEditingQuotationDocument(null)}>
-          <section className="modal quotation-number-modal" role="dialog" aria-modal="true" aria-labelledby="quotation-number-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head"><div><p className="eyebrow">ADMIN · NOMOR QUOTATION</p><h2 id="quotation-number-title">Ubah Nomor Quotation</h2><p>Perubahan ini juga memperbarui nomor quotation pada transaksi dan dokumen yang terhubung.</p></div><button className="icon-button" onClick={() => setEditingQuotationDocument(null)} aria-label="Tutup"><X /></button></div>
-            <form className="quotation-number-form" onSubmit={saveQuotationNumber}>
-              <label>Tiga digit awal<input autoFocus required inputMode="numeric" pattern="[0-9]{3}" maxLength={3} value={quotationSequenceDraft} onChange={(event) => setQuotationSequenceDraft(event.target.value.replace(/\D/g, "").slice(0, 3))} /></label>
-              <div><span>Nomor quotation baru</span><strong>{editedQuotationNumber}</strong><small>Nomor sebelumnya: {editingQuotationDocument.document_number}</small></div>
-              <div className="form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => setEditingQuotationDocument(null)}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Menyimpan…" : "Simpan Nomor Quotation"}</button></div>
-            </form>
-          </section>
-        </div>
-      )}
-
-      {editingDeliveryDocument && canEdit && (
-        <div className="modal-backdrop" onMouseDown={() => !saving && setEditingDeliveryDocument(null)}>
-          <section className="modal quotation-number-modal" role="dialog" aria-modal="true" aria-labelledby="delivery-number-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head"><div><p className="eyebrow">SALES / ADMIN · NOMOR SURAT JALAN</p><h2 id="delivery-number-title">Ubah Nomor Surat Jalan</h2><p>Hanya tiga digit awal yang diubah; transaksi dan referensi dokumen terkait ikut diperbarui.</p></div><button className="icon-button" onClick={() => setEditingDeliveryDocument(null)} aria-label="Tutup"><X /></button></div>
-            <form className="quotation-number-form" onSubmit={saveDeliveryNumber}>
-              <label>Tiga digit awal<input autoFocus required inputMode="numeric" pattern="[0-9]{3}" maxLength={3} value={deliverySequenceDraft} onChange={(event) => setDeliverySequenceDraft(event.target.value.replace(/\D/g, "").slice(0, 3))} /></label>
-              <div><span>Nomor surat jalan baru</span><strong>{editedDeliveryNumber}</strong><small>Nomor sebelumnya: {editingDeliveryDocument.document_number}</small></div>
-              <div className="form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => setEditingDeliveryDocument(null)}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Menyimpan…" : "Simpan Nomor Surat Jalan"}</button></div>
+      {editingNumberDocument && isAdmin && (
+        <div className="modal-backdrop" onMouseDown={() => !saving && setEditingNumberDocument(null)}>
+          <section className="modal quotation-number-modal" role="dialog" aria-modal="true" aria-labelledby="document-number-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-head"><div><p className="eyebrow">ADMIN · NOMOR DOKUMEN</p><h2 id="document-number-title">Ubah Nomor {documentTypeLabel(editingNumberDocument.document_type)}</h2><p>Nomor pada transaksi, pembayaran, dan dokumen yang terhubung akan ikut diperbarui.</p></div><button className="icon-button" onClick={() => setEditingNumberDocument(null)} aria-label="Tutup"><X /></button></div>
+            <form className="quotation-number-form" onSubmit={saveDocumentNumber}>
+              <label>Nomor dokumen lengkap<input autoFocus required pattern="[0-9]{3}/.+" maxLength={100} value={documentNumberDraft} onChange={(event) => setDocumentNumberDraft(event.target.value.toUpperCase())} /></label>
+              <div><span>Nomor sebelumnya</span><strong>{editingNumberDocument.document_number}</strong><small>Nomor baru harus diawali tiga digit dan tanda garis miring (/).</small></div>
+              <div className="form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => setEditingNumberDocument(null)}>Batal</button><button className="primary-button" disabled={saving}>{saving ? "Menyimpan…" : "Simpan Nomor"}</button></div>
             </form>
           </section>
         </div>

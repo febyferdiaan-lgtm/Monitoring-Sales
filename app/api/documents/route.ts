@@ -941,6 +941,7 @@ export async function PATCH(request: NextRequest) {
       if (access.identity?.role !== "ADMIN") return NextResponse.json({ error: "Hanya Admin yang dapat mengedit isi dokumen yang sudah terbit." }, { status: 403 });
       return updateDocumentContent(body);
     }
+    if (access.identity?.role !== "ADMIN") return NextResponse.json({ error: "Hanya Admin yang dapat mengubah nomor dokumen." }, { status: 403 });
     const id = Number(body.id || 0);
     const documentNumber = String(body.document_number || "").trim().toUpperCase();
     if (!id || !/^[0-9]{3}\/.+/.test(documentNumber)) {
@@ -956,13 +957,9 @@ export async function PATCH(request: NextRequest) {
       if (currentError || !current) throw currentError ?? new Error("Dokumen tidak ditemukan.");
       if (duplicateError) throw duplicateError;
       const documentType = String(current.document_type);
-      if (documentType !== "QUOTATION" && documentType !== "DELIVERY_NOTE") return NextResponse.json({ error: "Hanya nomor quotation atau surat jalan yang dapat diubah." }, { status: 400 });
-      if (documentType === "QUOTATION" && access.identity?.role !== "ADMIN") return NextResponse.json({ error: "Hanya Admin yang dapat mengubah nomor quotation yang sudah tersimpan." }, { status: 403 });
+      if (!["QUOTATION", "DELIVERY_NOTE", "INVOICE", "RECEIPT"].includes(documentType)) return NextResponse.json({ error: "Jenis dokumen tidak mendukung perubahan nomor." }, { status: 400 });
       const oldNumber = String(current.document_number);
-      if (oldNumber.replace(/^\d{1,3}/, "") !== documentNumber.replace(/^\d{3}/, "")) {
-        return NextResponse.json({ error: "Hanya tiga digit awal nomor dokumen yang dapat diubah." }, { status: 400 });
-      }
-      const documentLabel = documentType === "DELIVERY_NOTE" ? "surat jalan" : "quotation";
+      const documentLabel = documentType === "INVOICE" ? "invoice" : documentType === "DELIVERY_NOTE" ? "surat jalan" : documentType === "RECEIPT" ? "kwitansi" : "quotation";
       if (duplicate?.length) return NextResponse.json({ error: `Nomor ${documentLabel} ${documentNumber} sudah digunakan.` }, { status: 409 });
       if (oldNumber === documentNumber) return NextResponse.json({ ok: true, document_number: documentNumber });
       const now = new Date().toISOString();
@@ -976,7 +973,7 @@ export async function PATCH(request: NextRequest) {
         const { error: saleError } = await supabase.from("sales")
           .update({ quotation_no: documentNumber, updated_at: now }).eq("quotation_no", oldNumber);
         if (saleError) throw saleError;
-      } else {
+      } else if (documentType === "DELIVERY_NOTE") {
         const { data: saleRows, error: saleReadError } = await supabase.from("sales")
           .select("id,delivery_no").ilike("delivery_no", `%${oldNumber}%`);
         if (saleReadError) throw saleReadError;
@@ -985,6 +982,13 @@ export async function PATCH(request: NextRequest) {
           const { error: saleError } = await supabase.from("sales").update({ delivery_no: deliveryNo, updated_at: now }).eq("id", sale.id);
           if (saleError) throw saleError;
         }
+      } else if (documentType === "INVOICE") {
+        const [{ error: saleError }, { error: paymentError }] = await Promise.all([
+          supabase.from("sales").update({ invoice_no: documentNumber, updated_at: now }).eq("invoice_no", oldNumber),
+          supabase.from("payment_confirmations").update({ invoice_no: documentNumber }).eq("invoice_no", oldNumber),
+        ]);
+        if (saleError) throw saleError;
+        if (paymentError) throw paymentError;
       }
       return NextResponse.json({ ok: true, document_number: documentNumber });
     }
@@ -994,15 +998,11 @@ export async function PATCH(request: NextRequest) {
       "SELECT id, document_type, document_number FROM sales_documents WHERE id = ? LIMIT 1"
     ).bind(id).first<{ id: number; document_type: string; document_number: string }>();
     if (!current) return NextResponse.json({ error: "Dokumen tidak ditemukan." }, { status: 404 });
-    if (current.document_type !== "QUOTATION" && current.document_type !== "DELIVERY_NOTE") return NextResponse.json({ error: "Hanya nomor quotation atau surat jalan yang dapat diubah." }, { status: 400 });
-    if (current.document_type === "QUOTATION" && access.identity?.role !== "ADMIN") return NextResponse.json({ error: "Hanya Admin yang dapat mengubah nomor quotation yang sudah tersimpan." }, { status: 403 });
-    if (current.document_number.replace(/^\d{1,3}/, "") !== documentNumber.replace(/^\d{3}/, "")) {
-      return NextResponse.json({ error: "Hanya tiga digit awal nomor dokumen yang dapat diubah." }, { status: 400 });
-    }
+    if (!["QUOTATION", "DELIVERY_NOTE", "INVOICE", "RECEIPT"].includes(current.document_type)) return NextResponse.json({ error: "Jenis dokumen tidak mendukung perubahan nomor." }, { status: 400 });
     const duplicate = await db.prepare(
       "SELECT id FROM sales_documents WHERE document_number = ? COLLATE NOCASE AND id <> ? LIMIT 1"
     ).bind(documentNumber, id).first();
-    const documentLabel = current.document_type === "DELIVERY_NOTE" ? "surat jalan" : "quotation";
+    const documentLabel = current.document_type === "INVOICE" ? "invoice" : current.document_type === "DELIVERY_NOTE" ? "surat jalan" : current.document_type === "RECEIPT" ? "kwitansi" : "quotation";
     if (duplicate) return NextResponse.json({ error: `Nomor ${documentLabel} ${documentNumber} sudah digunakan.` }, { status: 409 });
     if (current.document_number === documentNumber) return NextResponse.json({ ok: true, document_number: documentNumber });
     const now = new Date().toISOString();
@@ -1021,6 +1021,15 @@ export async function PATCH(request: NextRequest) {
         const deliveryNo = String(sale.delivery_no || "").split(",").map((value) => value.trim() === current.document_number ? documentNumber : value.trim()).filter(Boolean).join(", ");
         statements.push(db.prepare("UPDATE sales SET delivery_no = ?, updated_at = ? WHERE id = ?").bind(deliveryNo, now, sale.id));
       });
+    }
+    if (salesExists && current.document_type === "INVOICE") statements.push(
+      db.prepare("UPDATE sales SET invoice_no = ?, updated_at = ? WHERE invoice_no = ?").bind(documentNumber, now, current.document_number)
+    );
+    if (current.document_type === "INVOICE") {
+      const paymentsExist = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='payment_confirmations'").first();
+      if (paymentsExist) statements.push(
+        db.prepare("UPDATE payment_confirmations SET invoice_no = ? WHERE invoice_no = ?").bind(documentNumber, current.document_number)
+      );
     }
     await db.batch(statements);
     return NextResponse.json({ ok: true, document_number: documentNumber });
