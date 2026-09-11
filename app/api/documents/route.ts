@@ -957,11 +957,26 @@ export async function PATCH(request: NextRequest) {
       if (currentError || !current) throw currentError ?? new Error("Dokumen tidak ditemukan.");
       if (duplicateError) throw duplicateError;
       const documentType = String(current.document_type);
-      if (!["QUOTATION", "DELIVERY_NOTE", "INVOICE", "RECEIPT"].includes(documentType)) return NextResponse.json({ error: "Jenis dokumen tidak mendukung perubahan nomor." }, { status: 400 });
+      if (!["QUOTATION", "DELIVERY_NOTE", "INVOICE"].includes(documentType)) return NextResponse.json({ error: "Nomor kwitansi mengikuti nomor invoice dan tidak dapat diubah terpisah." }, { status: 400 });
       const oldNumber = String(current.document_number);
-      const documentLabel = documentType === "INVOICE" ? "invoice" : documentType === "DELIVERY_NOTE" ? "surat jalan" : documentType === "RECEIPT" ? "kwitansi" : "quotation";
+      const documentLabel = documentType === "INVOICE" ? "invoice" : documentType === "DELIVERY_NOTE" ? "surat jalan" : "quotation";
       if (duplicate?.length) return NextResponse.json({ error: `Nomor ${documentLabel} ${documentNumber} sudah digunakan.` }, { status: 409 });
       if (oldNumber === documentNumber) return NextResponse.json({ ok: true, document_number: documentNumber });
+      const receiptRenames: Array<{ id: number; document_number: string }> = [];
+      if (documentType === "INVOICE") {
+        const invoiceSequence = documentNumber.slice(0, 3);
+        const { data: linkedReceipts, error: receiptReadError } = await supabase.from("sales_documents")
+          .select("id,document_number").eq("document_type", "RECEIPT").eq("reference_no", oldNumber);
+        if (receiptReadError) throw receiptReadError;
+        for (const receipt of linkedReceipts ?? []) {
+          const nextReceiptNumber = String(receipt.document_number).replace(/^[0-9]{3}(?=\/)/, invoiceSequence);
+          const { data: receiptDuplicate, error: receiptDuplicateError } = await supabase.from("sales_documents")
+            .select("id").eq("document_number", nextReceiptNumber).neq("id", receipt.id).limit(1);
+          if (receiptDuplicateError) throw receiptDuplicateError;
+          if (receiptDuplicate?.length) return NextResponse.json({ error: `Nomor kwitansi ${nextReceiptNumber} sudah digunakan. Nomor invoice belum diubah.` }, { status: 409 });
+          receiptRenames.push({ id: Number(receipt.id), document_number: nextReceiptNumber });
+        }
+      }
       const now = new Date().toISOString();
       const { error: documentError } = await supabase.from("sales_documents")
         .update({ document_number: documentNumber, updated_at: now }).eq("id", id);
@@ -983,6 +998,11 @@ export async function PATCH(request: NextRequest) {
           if (saleError) throw saleError;
         }
       } else if (documentType === "INVOICE") {
+        for (const receipt of receiptRenames) {
+          const { error: receiptError } = await supabase.from("sales_documents")
+            .update({ document_number: receipt.document_number, updated_at: now }).eq("id", receipt.id);
+          if (receiptError) throw receiptError;
+        }
         const [{ error: saleError }, { error: paymentError }] = await Promise.all([
           supabase.from("sales").update({ invoice_no: documentNumber, updated_at: now }).eq("invoice_no", oldNumber),
           supabase.from("payment_confirmations").update({ invoice_no: documentNumber }).eq("invoice_no", oldNumber),
@@ -990,7 +1010,7 @@ export async function PATCH(request: NextRequest) {
         if (saleError) throw saleError;
         if (paymentError) throw paymentError;
       }
-      return NextResponse.json({ ok: true, document_number: documentNumber });
+      return NextResponse.json({ ok: true, document_number: documentNumber, receipt_number: receiptRenames[0]?.document_number ?? null });
     }
 
     const db = await getDb();
@@ -998,14 +1018,29 @@ export async function PATCH(request: NextRequest) {
       "SELECT id, document_type, document_number FROM sales_documents WHERE id = ? LIMIT 1"
     ).bind(id).first<{ id: number; document_type: string; document_number: string }>();
     if (!current) return NextResponse.json({ error: "Dokumen tidak ditemukan." }, { status: 404 });
-    if (!["QUOTATION", "DELIVERY_NOTE", "INVOICE", "RECEIPT"].includes(current.document_type)) return NextResponse.json({ error: "Jenis dokumen tidak mendukung perubahan nomor." }, { status: 400 });
+    if (!["QUOTATION", "DELIVERY_NOTE", "INVOICE"].includes(current.document_type)) return NextResponse.json({ error: "Nomor kwitansi mengikuti nomor invoice dan tidak dapat diubah terpisah." }, { status: 400 });
     const duplicate = await db.prepare(
       "SELECT id FROM sales_documents WHERE document_number = ? COLLATE NOCASE AND id <> ? LIMIT 1"
     ).bind(documentNumber, id).first();
-    const documentLabel = current.document_type === "INVOICE" ? "invoice" : current.document_type === "DELIVERY_NOTE" ? "surat jalan" : current.document_type === "RECEIPT" ? "kwitansi" : "quotation";
+    const documentLabel = current.document_type === "INVOICE" ? "invoice" : current.document_type === "DELIVERY_NOTE" ? "surat jalan" : "quotation";
     if (duplicate) return NextResponse.json({ error: `Nomor ${documentLabel} ${documentNumber} sudah digunakan.` }, { status: 409 });
     if (current.document_number === documentNumber) return NextResponse.json({ ok: true, document_number: documentNumber });
     const now = new Date().toISOString();
+    const receiptRenames: Array<{ id: number; document_number: string }> = [];
+    if (current.document_type === "INVOICE") {
+      const invoiceSequence = documentNumber.slice(0, 3);
+      const linkedReceipts = await db.prepare(
+        "SELECT id, document_number FROM sales_documents WHERE document_type = 'RECEIPT' AND reference_no = ? COLLATE NOCASE"
+      ).bind(current.document_number).all<{ id: number; document_number: string }>();
+      for (const receipt of linkedReceipts.results) {
+        const nextReceiptNumber = receipt.document_number.replace(/^[0-9]{3}(?=\/)/, invoiceSequence);
+        const receiptDuplicate = await db.prepare(
+          "SELECT id FROM sales_documents WHERE document_number = ? COLLATE NOCASE AND id <> ? LIMIT 1"
+        ).bind(nextReceiptNumber, receipt.id).first();
+        if (receiptDuplicate) return NextResponse.json({ error: `Nomor kwitansi ${nextReceiptNumber} sudah digunakan. Nomor invoice belum diubah.` }, { status: 409 });
+        receiptRenames.push({ id: receipt.id, document_number: nextReceiptNumber });
+      }
+    }
     const salesExists = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sales'").first();
     const statements = [
       db.prepare("UPDATE sales_documents SET document_number = ?, updated_at = ? WHERE id = ?").bind(documentNumber, now, id),
@@ -1026,13 +1061,16 @@ export async function PATCH(request: NextRequest) {
       db.prepare("UPDATE sales SET invoice_no = ?, updated_at = ? WHERE invoice_no = ?").bind(documentNumber, now, current.document_number)
     );
     if (current.document_type === "INVOICE") {
+      receiptRenames.forEach((receipt) => statements.push(
+        db.prepare("UPDATE sales_documents SET document_number = ?, updated_at = ? WHERE id = ?").bind(receipt.document_number, now, receipt.id)
+      ));
       const paymentsExist = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='payment_confirmations'").first();
       if (paymentsExist) statements.push(
         db.prepare("UPDATE payment_confirmations SET invoice_no = ? WHERE invoice_no = ?").bind(documentNumber, current.document_number)
       );
     }
     await db.batch(statements);
-    return NextResponse.json({ ok: true, document_number: documentNumber });
+    return NextResponse.json({ ok: true, document_number: documentNumber, receipt_number: receiptRenames[0]?.document_number ?? null });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Nomor dokumen belum berhasil diubah." }, { status: 500 });
   }
